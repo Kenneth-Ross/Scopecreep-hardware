@@ -60,13 +60,13 @@ class AWGBase(ABC):
     """Interface contract for arbitrary waveform generator outputs."""
 
     @abstractmethod
-    def set_waveform(self, channel: int, waveform: str, frequency: float) -> None:
-        """Select the waveform type and frequency for a channel.
+    def set_waveform(self, channel: int, waveform: np.ndarray, sample_rate: float) -> None:
+        """Upload an arbitrary waveform to a channel.
 
         Args:
             channel: Zero-based AWG channel index.
-            waveform: Waveform shape identifier (e.g. "sine", "square", "dc").
-            frequency: Output frequency in Hz.
+            waveform: Normalized float64 array in [-1.0, 1.0]; scaled to ±5 V by hardware.
+            sample_rate: Playback sample rate in Hz.
         """
 
     @abstractmethod
