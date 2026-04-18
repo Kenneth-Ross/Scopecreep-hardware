@@ -1,0 +1,30 @@
+import struct
+from drivers.dps150 import build_packet, INIT_PACKET
+
+def test_build_set_voltage_5v():
+    # float32 LE of 5.0 = 00 00 A0 40
+    # checksum = (0xC1 + 0x04 + 0xE0) % 256 = 0xA5
+    pkt = build_packet(cmd=0xB1, register=0xC1, payload=struct.pack('<f', 5.0))
+    assert pkt == bytes([0xF1, 0xB1, 0xC1, 0x04, 0x00, 0x00, 0xA0, 0x40, 0xA5])
+
+def test_build_set_current_1a():
+    # float32 LE of 1.0 = 00 00 80 3F
+    # checksum = (0xC2 + 0x04 + 0xBF) % 256 = 0x85
+    pkt = build_packet(cmd=0xB1, register=0xC2, payload=struct.pack('<f', 1.0))
+    assert pkt == bytes([0xF1, 0xB1, 0xC2, 0x04, 0x00, 0x00, 0x80, 0x3F, 0x85])
+
+def test_build_output_on():
+    pkt = build_packet(cmd=0xB1, register=0xDB, payload=bytes([0x01]))
+    assert pkt == bytes([0xF1, 0xB1, 0xDB, 0x01, 0x01, 0xDD])
+
+def test_build_output_off():
+    pkt = build_packet(cmd=0xB1, register=0xDB, payload=bytes([0x00]))
+    assert pkt == bytes([0xF1, 0xB1, 0xDB, 0x01, 0x00, 0xDC])
+
+def test_build_get_all():
+    pkt = build_packet(cmd=0xA1, register=0xFF, payload=b'')
+    # checksum = (0xFF + 0x00) % 256 = 0xFF
+    assert pkt == bytes([0xF1, 0xA1, 0xFF, 0x00, 0xFF])
+
+def test_init_packet():
+    assert INIT_PACKET == bytes([0xF1, 0xC1, 0x00, 0x01, 0x01, 0x02])
