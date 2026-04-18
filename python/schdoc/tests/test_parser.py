@@ -3,7 +3,8 @@ from schdoc.models import (
     ConnectorPin, PinRef, Component, PowerRail,
     Zone, ProbePoint, SchematicSummary,
 )
-from schdoc.parser import parse_stream, build_components, resolve_nets
+from schdoc.parser import parse_stream, build_components, resolve_nets, extract_zones
+from schdoc.models import Component
 
 
 def test_models_importable():
@@ -190,3 +191,33 @@ def test_resolve_nets_unnamed_cluster():
     refs = nets[unnamed[0]]
     designators = {r.designator for r in refs}
     assert designators == {"R1", "R2"}
+
+
+def test_extract_zones_assigns_component():
+    # Component at (150, 150), zone bbox (100,100)-(200,200)
+    records = [
+        {"RECORD": "43", "_stream_pos": 0, "Name": "Power Tree",
+         "Location.X": "100", "Location.Y": "100",
+         "Corner.X": "200", "Corner.Y": "200"},
+    ]
+    comp = Component(
+        designator="U1", value="TPS62932", description="Buck",
+        part_number="", manufacturer="", footprint="",
+        is_connector=False, pins=[],
+    )
+    zones = extract_zones(records, [comp], {"U1": (150, 150)})
+    assert len(zones) == 1
+    assert zones[0].name == "Power Tree"
+    assert any(c.designator == "U1" for c in zones[0].components)
+
+
+def test_extract_zones_other_group():
+    records = []  # no zone annotations
+    comp = Component(
+        designator="U1", value="IC", description="",
+        part_number="", manufacturer="", footprint="",
+        is_connector=False, pins=[],
+    )
+    zones = extract_zones(records, [comp], {"U1": (50, 50)})
+    assert len(zones) == 1
+    assert zones[0].name == "Other"

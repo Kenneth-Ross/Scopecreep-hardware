@@ -253,3 +253,191 @@ def resolve_nets(
         ))
 
     return nets
+
+
+def extract_zones(
+    records: list[dict],
+    components: list[Component],
+    comp_locations: dict[str, tuple[int, int]],
+) -> list[Zone]:
+    """Assign components to named functional zones via RECORD=43 bounding boxes."""
+    zone_records = [r for r in records if r.get("RECORD") == "43"]
+
+    zones: list[Zone] = []
+    zone_bounds: list[tuple[int, int, int, int]] = []
+    for zrec in zone_records:
+        try:
+            x1 = int(zrec["Location.X"])
+            y1 = int(zrec["Location.Y"])
+            x2 = int(zrec["Corner.X"])
+            y2 = int(zrec["Corner.Y"])
+        except (KeyError, ValueError):
+            continue
+        lx, rx = min(x1, x2), max(x1, x2)
+        ly, ry = min(y1, y2), max(y1, y2)
+        zones.append(Zone(name=zrec.get("Name", "Unknown")))
+        zone_bounds.append((lx, ly, rx, ry))
+
+    for comp in components:
+        loc = comp_locations.get(comp.designator)
+        if not loc:
+            continue
+        for zone, (lx, ly, rx, ry) in zip(zones, zone_bounds):
+            if lx <= loc[0] <= rx and ly <= loc[1] <= ry:
+                zone.components.append(comp)
+                break
+
+    assigned = {c.designator for z in zones for c in z.components}
+    unassigned = [c for c in components if c.designator not in assigned]
+    if unassigned:
+        zones.append(Zone(name="Other", components=unassigned))
+
+    return zones
+
+
+def _parse_nominal_voltage(name: str) -> float | None:
+    import re
+    n = name.upper().strip()
+    if n == "GND":
+        return 0.0
+    m = re.match(r"^(\d+)V(\d+)$", n)
+    if m:
+        return float(f"{m.group(1)}.{m.group(2)}")
+    m = re.match(r"^(\d+\.?\d*)V$", n)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _build_power_rails(
+    records: list[dict], nets: dict[str, list[PinRef]]
+) -> list[PowerRail]:
+    power_names = {r["Text"] for r in records if r.get("RECORD") == "17" and r.get("Text")}
+    rails: list[PowerRail] = []
+    for name in sorted(power_names):
+        refs = nets.get(name, [])
+        source = next(
+            (r.designator for r in refs if r.electrical_type == 2), None
+        ) or next(
+            (r.designator for r in refs if r.electrical_type == 1), None
+        )
+        loads = [r.designator for r in refs if r.designator != source]
+        rails.append(PowerRail(
+            name=name,
+            nominal_voltage=_parse_nominal_voltage(name),
+            source_designator=source,
+            loads=sorted(set(loads)),
+        ))
+    return rails
+
+
+def _build_probe_points(
+    components: list[Component],
+    nets: dict[str, list[PinRef]],
+    power_rail_names: set[str],
+) -> list[ProbePoint]:
+    import re
+    probes: list[ProbePoint] = []
+
+    def _expected_range(net: str) -> str:
+        n = net.upper()
+        if n == "GND":
+            return "0V"
+        v = _parse_nominal_voltage(net)
+        if v is not None:
+            pct = "± 5%" if v <= 5 else "± 10%"
+            return f"{v}V {pct}"
+        if "CANH" in n or "CANL" in n:
+            return "CAN differential 1.5–3.0V (active)"
+        if "ADC" in n or "PEDAL" in n or "BRAKE" in n:
+            return "0–3.3V analog"
+        return "TBD"
+
+    # Physical test points first
+    for comp in components:
+        desc = comp.description.lower()
+        if comp.designator.startswith("J") and "test" in desc:
+            for pin in comp.pins:
+                probes.append(ProbePoint(
+                    label=f"{comp.designator}.{pin.number}",
+                    net=pin.net,
+                    designator=comp.designator,
+                    pin_name=pin.name,
+                    pin_number=pin.number,
+                    probe_type="physical_tp",
+                    expected_range=_expected_range(pin.net),
+                ))
+
+    # Power rail source pins
+    for net_name, refs in nets.items():
+        if net_name not in power_rail_names:
+            continue
+        for ref in refs:
+            if ref.electrical_type == 2:
+                probes.append(ProbePoint(
+                    label=f"{ref.designator}.{ref.pin_name}",
+                    net=net_name,
+                    designator=ref.designator,
+                    pin_name=ref.pin_name,
+                    pin_number=ref.pin_number,
+                    probe_type="power_rail",
+                    expected_range=_expected_range(net_name),
+                ))
+
+    # High-value signal nets
+    for net_name, refs in nets.items():
+        if net_name in power_rail_names:
+            continue
+        n = net_name.upper()
+        if any(kw in n for kw in ("CANH", "CANL", "ADC", "PEDAL", "BRAKE", "RTD", "RTM")):
+            for ref in refs[:1]:
+                probes.append(ProbePoint(
+                    label=f"{ref.designator}.{ref.pin_name}",
+                    net=net_name,
+                    designator=ref.designator,
+                    pin_name=ref.pin_name,
+                    pin_number=ref.pin_number,
+                    probe_type="signal",
+                    expected_range=_expected_range(net_name),
+                ))
+
+    return probes
+
+
+def parse(path: str | Path) -> SchematicSummary:
+    """Parse a .SchDoc file and return a SchematicSummary."""
+    with olefile.OleFileIO(str(path)) as ole:
+        data = ole.openstream("FileHeader").read()
+        add_data = ole.openstream("Additional").read() if ole.exists("Additional") else b""
+
+    records = parse_stream(data)
+    if add_data:
+        records += parse_stream(add_data)
+
+    components = build_components(records)
+
+    comp_locations: dict[str, tuple[int, int]] = {}
+    comp_rec_list = [r for r in records if r.get("RECORD") == "1"]
+    for idx, crec in enumerate(comp_rec_list):
+        if idx < len(components):
+            pt = _xy(crec)
+            if pt:
+                comp_locations[components[idx].designator] = pt
+
+    nets = resolve_nets(records, components)
+    zones = extract_zones(records, components, comp_locations)
+
+    power_rail_names = {r["Text"] for r in records if r.get("RECORD") == "17" and r.get("Text")}
+    power_rails = _build_power_rails(records, nets)
+    connectors = [c for c in components if c.is_connector]
+    probe_points = _build_probe_points(components, nets, power_rail_names)
+
+    return SchematicSummary(
+        board_name=Path(path).stem,
+        understanding="",
+        power_rails=power_rails,
+        zones=zones,
+        connectors=connectors,
+        probe_points=probe_points,
+        nets=nets,
+    )
