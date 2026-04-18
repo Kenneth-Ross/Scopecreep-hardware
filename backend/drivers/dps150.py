@@ -35,7 +35,7 @@ class DPS150(InstrumentDriver):
         self._ser: serial.Serial | None = None
 
     def connect(self) -> None:
-        self._ser = serial.Serial(self._port, self._baud, timeout=self._timeout)
+        self._ser = serial.Serial(self._port, self._baud, timeout=self._timeout, rtscts=True)
         self._ser.reset_input_buffer()
         self._ser.write(INIT_PACKET)
         time.sleep(_INTER_CMD_DELAY)
