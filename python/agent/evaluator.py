@@ -93,3 +93,13 @@ def evaluate_tier1(measurements: dict[str, Any], expected_range: str) -> str:
             return "MARGINAL"
 
     return "FAIL"
+
+
+async def evaluate_tier2(
+    measurements: dict[str, Any],
+    expected_range: str,
+    probe_point: dict[str, Any],
+    board_understanding: str,
+) -> tuple[str, str]:
+    """Placeholder — full implementation added in Task 7."""
+    raise NotImplementedError("evaluate_tier2 not yet implemented")
