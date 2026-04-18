@@ -272,10 +272,20 @@ class FtdiTransport:
             ])
             tdo_bytes_expected += 1
 
+        # Flush all chunks except the final one before appending SEND_IMMEDIATE,
+        # so large bitstreams (1-4 MB) never build one giant buffer in memory.
+        _CHUNK = 65536
+        if len(cmd) > _CHUNK:
+            offset = 0
+            while offset + _CHUNK < len(cmd):
+                self._ftdi.write_data(cmd[offset: offset + _CHUNK])
+                offset += _CHUNK
+            cmd = cmd[offset:]  # keep the remainder for the final flush
+
         cmd += bytearray([Ftdi.SEND_IMMEDIATE])
 
         self._ftdi.write_data(cmd)
-        raw = self._ftdi.read_data_bytes(tdo_bytes_expected, attempt=4)
+        raw = self._ftdi.read_data_bytes(tdo_bytes_expected, attempt=4)  # retry up to 4 USB micro-frames
 
         return self._pack_tdo(raw, num_bits, pre_bits, last)
 
@@ -352,7 +362,7 @@ class FtdiTransport:
         cmd += bytearray([Ftdi.SEND_IMMEDIATE])
         self._ftdi.write_data(cmd)
 
-        result = self._ftdi.read_data_bytes(n, attempt=4)
+        result = self._ftdi.read_data_bytes(n, attempt=4)  # retry up to 4 USB micro-frames
         if len(result) != n:
             raise TransportError(
                 f"PTI read expected {n} bytes, got {len(result)}"
@@ -378,7 +388,7 @@ class FtdiTransport:
         """Return the current sampled ACBUS GPIO high byte (all 8 bits)."""
         cmd = bytearray([Ftdi.GET_BITS_HIGH, Ftdi.SEND_IMMEDIATE])
         self._ftdi.write_data(cmd)
-        data = self._ftdi.read_data_bytes(1, attempt=4)
+        data = self._ftdi.read_data_bytes(1, attempt=4)  # retry up to 4 USB micro-frames
         if not data:
             raise TransportError("Failed to read ACBUS GPIO state")
         return data[0]

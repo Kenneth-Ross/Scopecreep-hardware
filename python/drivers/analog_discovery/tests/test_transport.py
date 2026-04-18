@@ -287,6 +287,20 @@ class TestPackTdo(unittest.TestCase):
             result = FtdiTransport._pack_tdo(raw, num_bits, num_bits, False)
             self.assertEqual(len(result), math.ceil(num_bits / 8), f"Failed for num_bits={num_bits}")
 
+    def test_sub_byte_3_bits(self):
+        # 3 bits: MPSSE left-aligns results (MSB = first received bit)
+        # received bits [0,1,2] = 1,0,1 → raw MPSSE byte: 0b10100000 = 0xA0
+        # Expected LSB-first output: bit0=1, bit1=0, bit2=1 → 0b00000101 = 0x05
+        raw = bytearray([0xA0])
+        result = FtdiTransport._pack_tdo(raw, num_bits=3, pre_bits=3, last=False)
+        self.assertEqual(result, bytes([0x05]))
+
+    def test_last_bit_captured(self):
+        # 1 bit with last=True: TDO captured in bit7 of TMS response byte
+        raw = bytearray([0x80])  # bit7 = 1
+        result = FtdiTransport._pack_tdo(raw, num_bits=1, pre_bits=0, last=True)
+        self.assertEqual(result, bytes([0x01]))
+
 
 # ---------------------------------------------------------------------------
 # close() is safe to call multiple times
