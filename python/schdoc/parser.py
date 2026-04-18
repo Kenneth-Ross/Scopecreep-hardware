@@ -105,3 +105,143 @@ def build_components(records: list[dict]) -> list[Component]:
             ))
 
     return components
+
+
+class _UnionFind:
+    def __init__(self) -> None:
+        self._parent: dict[tuple[int, int], tuple[int, int]] = {}
+
+    def find(self, x: tuple[int, int]) -> tuple[int, int]:
+        if x not in self._parent:
+            self._parent[x] = x
+        if self._parent[x] != x:
+            self._parent[x] = self.find(self._parent[x])
+        return self._parent[x]
+
+    def union(self, a: tuple[int, int], b: tuple[int, int]) -> None:
+        self._parent[self.find(a)] = self.find(b)
+
+
+def _xy(rec: dict, prefix: str = "Location") -> tuple[int, int] | None:
+    try:
+        return (int(rec[f"{prefix}.X"]), int(rec[f"{prefix}.Y"]))
+    except (KeyError, ValueError):
+        return None
+
+
+def resolve_nets(
+    records: list[dict], components: list[Component]
+) -> dict[str, list[PinRef]]:
+    """
+    Build a net->PinRef map using coordinate union-find.
+    Also populates Component.pins with ConnectorPin objects.
+    """
+    uf = _UnionFind()
+    coord_name: dict[tuple[int, int], str] = {}
+
+    # Wire segment endpoints
+    for rec in records:
+        if rec.get("RECORD") != "27":
+            continue
+        try:
+            n = int(rec.get("LocationCount", 0))
+        except ValueError:
+            continue
+        pts = []
+        for i in range(1, n + 1):
+            try:
+                pt = (int(rec[f"X{i}"]), int(rec[f"Y{i}"]))
+                pts.append(pt)
+                uf.find(pt)  # register
+            except (KeyError, ValueError):
+                pass
+        for i in range(len(pts) - 1):
+            uf.union(pts[i], pts[i + 1])
+
+    # Power ports
+    for rec in records:
+        if rec.get("RECORD") != "17":
+            continue
+        pt = _xy(rec)
+        if pt and rec.get("Text"):
+            uf.find(pt)
+            coord_name[pt] = rec["Text"]
+
+    # Net labels
+    for rec in records:
+        if rec.get("RECORD") != "25":
+            continue
+        pt = _xy(rec)
+        if pt and rec.get("Text"):
+            uf.find(pt)
+            coord_name[pt] = rec["Text"]
+
+    # Junctions
+    for rec in records:
+        if rec.get("RECORD") == "29":
+            pt = _xy(rec)
+            if pt:
+                uf.find(pt)
+
+    # Build index: _stream_pos of RECORD=1 -> Component
+    comp_by_pos: dict[int, Component] = {}
+    comp_rec_list = [r for r in records if r.get("RECORD") == "1"]
+    for idx, crec in enumerate(comp_rec_list):
+        if idx < len(components):
+            comp_by_pos[crec["_stream_pos"]] = components[idx]
+
+    # Collect pin records per component
+    pin_records: list[tuple[Component, dict]] = []
+    for rec in records:
+        if rec.get("RECORD") != "2":
+            continue
+        owner_idx = rec.get("OwnerIndex")
+        if owner_idx is None:
+            continue
+        parent_pos = int(owner_idx)   # direct equality: OwnerIndex == parent _stream_pos
+        comp = comp_by_pos.get(parent_pos)
+        if comp:
+            pin_records.append((comp, rec))
+
+    # Register pin locations in union-find
+    for comp, prec in pin_records:
+        pt = _xy(prec)
+        if pt:
+            uf.find(pt)
+
+    # Name clusters from coord_name
+    root_name: dict[tuple[int, int], str] = {}
+    for pt, name in coord_name.items():
+        root = uf.find(pt)
+        if root not in root_name:
+            root_name[root] = name
+
+    # Assign NET_N to unnamed clusters that have pins
+    cluster_counter = 0
+    nets: dict[str, list[PinRef]] = {}
+
+    for comp, prec in pin_records:
+        pt = _xy(prec)
+        if not pt:
+            continue
+        root = uf.find(pt)
+        if root not in root_name:
+            root_name[root] = f"NET_{cluster_counter}"
+            cluster_counter += 1
+        net_name = root_name[root]
+        ref = PinRef(
+            designator=comp.designator,
+            pin_name=prec.get("Name", ""),
+            pin_number=prec.get("Designator", ""),
+            electrical_type=int(prec.get("Electrical", -1)),
+        )
+        nets.setdefault(net_name, []).append(ref)
+
+        # Populate ConnectorPin on the component
+        comp.pins.append(ConnectorPin(
+            number=prec.get("Designator", ""),
+            name=prec.get("Name", ""),
+            net=net_name,
+        ))
+
+    return nets

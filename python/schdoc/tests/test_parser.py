@@ -3,7 +3,7 @@ from schdoc.models import (
     ConnectorPin, PinRef, Component, PowerRail,
     Zone, ProbePoint, SchematicSummary,
 )
-from schdoc.parser import parse_stream, build_components
+from schdoc.parser import parse_stream, build_components, resolve_nets
 
 
 def test_models_importable():
@@ -130,3 +130,63 @@ def test_build_components_multi():
     assert len(components) == 2
     assert components[0].designator == "U1"
     assert components[1].designator == "U2"
+
+
+def test_resolve_nets_simple_wire():
+    # Wire from (100,100) to (200,100), pin at (200,100), net label at (100,100)
+    data = _make_bytes(
+        # Component + pin at (200, 100)
+        "|RECORD=1|ComponentDescription=IC|Location.X=220|Location.Y=100|",
+        "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
+        "|RECORD=41|OwnerIndex=0|Name=Comment|Text=IC|",
+        "|RECORD=2|OwnerIndex=0|Name=VIN|Designator=1|Electrical=0|Location.X=200|Location.Y=100|",
+        # Wire: (100,100)-(200,100)
+        "|RECORD=27|LocationCount=2|X1=100|Y1=100|X2=200|Y2=100|",
+        # Net label at (100,100)
+        "|RECORD=25|Text=12V|Location.X=100|Location.Y=100|",
+    )
+    records = parse_stream(data)
+    components = build_components(records)
+    nets = resolve_nets(records, components)
+    assert "12V" in nets
+    pins_on_12v = nets["12V"]
+    assert any(p.designator == "U1" and p.pin_name == "VIN" for p in pins_on_12v)
+
+
+def test_resolve_nets_power_port():
+    data = _make_bytes(
+        "|RECORD=1|ComponentDescription=IC|Location.X=120|Location.Y=100|",
+        "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
+        "|RECORD=41|OwnerIndex=0|Name=Comment|Text=IC|",
+        "|RECORD=2|OwnerIndex=0|Name=GND|Designator=2|Electrical=7|Location.X=100|Location.Y=100|",
+        "|RECORD=17|Text=GND|Location.X=100|Location.Y=100|",
+    )
+    records = parse_stream(data)
+    components = build_components(records)
+    nets = resolve_nets(records, components)
+    assert "GND" in nets
+    assert any(p.designator == "U1" for p in nets["GND"])
+
+
+def test_resolve_nets_unnamed_cluster():
+    # Two pins connected by wire, no label
+    data = _make_bytes(
+        "|RECORD=1|ComponentDescription=R|Location.X=120|Location.Y=100|",
+        "|RECORD=34|OwnerIndex=0|Name=Designator|Text=R1|",
+        "|RECORD=41|OwnerIndex=0|Name=Comment|Text=10k|",
+        "|RECORD=2|OwnerIndex=0|Name=1|Designator=1|Electrical=4|Location.X=100|Location.Y=100|",
+        "|RECORD=1|ComponentDescription=R|Location.X=220|Location.Y=100|",
+        "|RECORD=34|OwnerIndex=4|Name=Designator|Text=R2|",
+        "|RECORD=41|OwnerIndex=4|Name=Comment|Text=10k|",
+        "|RECORD=2|OwnerIndex=4|Name=1|Designator=1|Electrical=4|Location.X=200|Location.Y=100|",
+        "|RECORD=27|LocationCount=2|X1=100|Y1=100|X2=200|Y2=100|",
+    )
+    records = parse_stream(data)
+    components = build_components(records)
+    nets = resolve_nets(records, components)
+    # One unnamed net connecting R1 and R2
+    unnamed = [n for n in nets if n.startswith("NET_")]
+    assert len(unnamed) == 1
+    refs = nets[unnamed[0]]
+    designators = {r.designator for r in refs}
+    assert designators == {"R1", "R2"}
