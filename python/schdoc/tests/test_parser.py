@@ -3,7 +3,7 @@ from schdoc.models import (
     ConnectorPin, PinRef, Component, PowerRail,
     Zone, ProbePoint, SchematicSummary,
 )
-from schdoc.parser import parse_stream
+from schdoc.parser import parse_stream, build_components
 
 
 def test_models_importable():
@@ -81,3 +81,52 @@ def test_parse_stream_skips_empty_records():
     assert records[0]["RECORD"] == "31"
     assert records[1]["RECORD"] == "1"
     assert records[1]["_stream_pos"] == 2
+
+
+def test_build_components_basic():
+    data = _make_bytes(
+        "|RECORD=1|ComponentDescription=Buck Converter|Location.X=100|Location.Y=200|",
+        "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
+        "|RECORD=41|OwnerIndex=0|Name=Comment|Text=TPS62932|",
+        "|RECORD=41|OwnerIndex=0|Name=Part Number|Text=TPS62932DRLR|",
+        "|RECORD=41|OwnerIndex=0|Name=Manufacturer|Text=TI|",
+        "|RECORD=45|OwnerIndex=0|ModelDatafileEntity0=FP-DRL0008A|",
+    )
+    records = parse_stream(data)
+    components = build_components(records)
+    assert len(components) == 1
+    c = components[0]
+    assert c.designator == "U1"
+    assert c.value == "TPS62932"
+    assert c.description == "Buck Converter"
+    assert c.part_number == "TPS62932DRLR"
+    assert c.manufacturer == "TI"
+    assert c.footprint == "FP-DRL0008A"
+    assert c.is_connector is False
+
+
+def test_build_components_connector_detection():
+    data = _make_bytes(
+        "|RECORD=1|ComponentDescription=Molex Microfit 12-pos|Location.X=10|Location.Y=10|",
+        "|RECORD=34|OwnerIndex=0|Name=Designator|Text=J1|",
+        "|RECORD=41|OwnerIndex=0|Name=Comment|Text=436450400|",
+    )
+    records = parse_stream(data)
+    components = build_components(records)
+    assert components[0].is_connector is True
+
+
+def test_build_components_multi():
+    data = _make_bytes(
+        "|RECORD=1|ComponentDescription=IC A|Location.X=10|Location.Y=10|",
+        "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
+        "|RECORD=41|OwnerIndex=0|Name=Comment|Text=PartA|",
+        "|RECORD=1|ComponentDescription=IC B|Location.X=200|Location.Y=200|",
+        "|RECORD=34|OwnerIndex=3|Name=Designator|Text=U2|",
+        "|RECORD=41|OwnerIndex=3|Name=Comment|Text=PartB|",
+    )
+    records = parse_stream(data)
+    components = build_components(records)
+    assert len(components) == 2
+    assert components[0].designator == "U1"
+    assert components[1].designator == "U2"
