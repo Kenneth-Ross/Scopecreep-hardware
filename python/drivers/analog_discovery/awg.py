@@ -12,9 +12,8 @@ import numpy as np
 from ..base import AWGBase
 from .pti import PTIController, awg_data, awg_enable
 
-# DAC is 14-bit unsigned: 0 → -5 V, 8192 → 0 V, 16383 → +5 V
+# DAC is 14-bit unsigned: 0 → -5 V, 16383 → +5 V
 _DAC_MAX = 16383
-_DAC_MID = 8192  # midpoint ≈ 0 V  (exact midpoint of 0–16383 is 8191.5)
 
 # PTI payload cap is 256 bytes → max 128 DAC words per chunk
 _MAX_WORDS_PER_CHUNK = 128
@@ -34,7 +33,6 @@ class WaveformGenerator(AWGBase):
         self._offset: dict[int, float] = {}      # DC offset volts
         # Last uploaded waveform (normalised), so set_amplitude can re-upload
         self._last_waveform: dict[int, np.ndarray] = {}
-        self._last_sample_rate: dict[int, float] = {}
 
     # ------------------------------------------------------------------
     # AWGBase implementation
@@ -50,7 +48,6 @@ class WaveformGenerator(AWGBase):
         """
         # Persist for potential re-upload via set_amplitude
         self._last_waveform[channel] = np.array(waveform, dtype=np.float64)
-        self._last_sample_rate[channel] = sample_rate
 
         self._upload_waveform(channel, waveform)
 
@@ -69,9 +66,22 @@ class WaveformGenerator(AWGBase):
 
         Args:
             channel: Zero-based AWG channel index.
-            amplitude: Peak amplitude in volts.
-            offset: DC offset in volts (default 0.0).
+            amplitude: Peak amplitude in volts (0.0 to 5.0).
+            offset: DC offset in volts (-5.0 to 5.0, default 0.0).
+
+        Raises:
+            ValueError: If amplitude or offset is out of range, or if their
+                combination exceeds the ±5 V output range.
         """
+        if amplitude < 0 or amplitude > 5.0:
+            raise ValueError(f"amplitude {amplitude!r} V out of range [0.0, 5.0]")
+        if not (-5.0 <= offset <= 5.0):
+            raise ValueError(f"offset {offset!r} V out of range [-5.0, 5.0]")
+        if amplitude + abs(offset) > 5.0:
+            raise ValueError(
+                f"amplitude ({amplitude} V) + |offset| ({abs(offset)} V) exceeds ±5 V output range"
+            )
+
         self._amplitude[channel] = amplitude
         self._offset[channel] = offset
 

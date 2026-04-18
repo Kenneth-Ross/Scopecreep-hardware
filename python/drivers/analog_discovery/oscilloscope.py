@@ -162,13 +162,24 @@ class OscilloscopeChannel(OscilloscopeBase):
             1-D float64 array of voltage samples.
 
         Raises:
-            KeyError: If *channel* has not been configured via :meth:`configure_channel`.
+            ValueError: If *channel* has not been configured via :meth:`configure_channel`.
+            ValueError: If the device returns fewer bytes than expected.
         """
+        if channel not in self._num_samples:
+            raise ValueError(
+                f"Channel {channel} has not been configured; call configure_channel() first."
+            )
         n_samples = self._num_samples[channel]
         voltage_range = self._voltage_range.get(channel, 10.0)
 
         cmd = scope_read(ch=channel, n_samples=n_samples)
         raw_bytes = self._pti.send(cmd)
+
+        expected = n_samples * 2
+        if len(raw_bytes) < expected:
+            raise ValueError(
+                f"read_samples: expected {expected} bytes from device, got {len(raw_bytes)}"
+            )
 
         # Parse as signed 16-bit big-endian words
         words = struct.unpack(f">{n_samples}h", raw_bytes[: n_samples * 2])

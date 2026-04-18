@@ -19,13 +19,13 @@ _DAC_FULL_SCALE = 4095  # 12-bit DAC
 
 def _vpos_code(voltage: float) -> int:
     """Convert a V+ voltage [0, +5 V] to a 12-bit DAC code."""
-    code = int(voltage / PSU_V_MAX * _DAC_FULL_SCALE)
+    code = round(voltage / PSU_V_MAX * _DAC_FULL_SCALE)
     return max(0, min(_DAC_FULL_SCALE, code))
 
 
 def _vneg_code(voltage: float) -> int:
     """Convert a V− voltage [−5 V, 0] to a 12-bit DAC code (magnitude)."""
-    code = int(abs(voltage) / PSU_V_MAX * _DAC_FULL_SCALE)
+    code = round(abs(voltage) / PSU_V_MAX * _DAC_FULL_SCALE)
     return max(0, min(_DAC_FULL_SCALE, code))
 
 

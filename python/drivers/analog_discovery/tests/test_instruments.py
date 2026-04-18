@@ -118,6 +118,22 @@ class TestOscilloscopeChannel:
         with pytest.raises(ValueError, match="Unknown edge"):
             osc.arm_trigger(source="none", level=0.0, edge="bad")
 
+    def test_read_samples_raises_on_unconfigured_channel(self):
+        """read_samples without configure_channel must raise ValueError."""
+        osc, _ = self._make()
+        with pytest.raises(ValueError, match="has not been configured"):
+            osc.read_samples(channel=0)
+
+    def test_read_samples_raises_on_short_read(self):
+        """read_samples must raise ValueError if device returns fewer bytes than expected."""
+        n = 10
+        # Return only 4 bytes instead of 10*2=20
+        short_response = b"\x00" * 4
+        osc, _ = self._make(response=short_response)
+        osc.configure_channel(channel=0, voltage_range=10.0, sample_rate=1e6, num_samples=n)
+        with pytest.raises(ValueError, match="read_samples: expected"):
+            osc.read_samples(channel=0)
+
 
 # ---------------------------------------------------------------------------
 # AWG tests
@@ -214,6 +230,24 @@ class TestWaveformGenerator:
         # 300 samples / 128 per chunk = 3 sends (128 + 128 + 44)
         assert pti.send.call_count == 3
 
+    def test_set_amplitude_negative_raises(self):
+        """Negative amplitude must raise ValueError."""
+        awg, _ = self._make()
+        with pytest.raises(ValueError, match="amplitude"):
+            awg.set_amplitude(channel=0, amplitude=-1.0)
+
+    def test_set_amplitude_offset_out_of_range_raises(self):
+        """Offset beyond ±5 V must raise ValueError."""
+        awg, _ = self._make()
+        with pytest.raises(ValueError, match="offset"):
+            awg.set_amplitude(channel=0, amplitude=1.0, offset=6.0)
+
+    def test_set_amplitude_combined_exceeds_range_raises(self):
+        """amplitude + |offset| > 5 V must raise ValueError."""
+        awg, _ = self._make()
+        with pytest.raises(ValueError, match="exceeds"):
+            awg.set_amplitude(channel=0, amplitude=3.0, offset=3.0)
+
 
 # ---------------------------------------------------------------------------
 # PSU tests
@@ -228,26 +262,26 @@ class TestPowerSupply:
         return PowerSupply(pti), pti
 
     def test_set_voltage_vpos_correct_dac_code(self):
-        """set_voltage(0, 3.3) → V+ DAC code ≈ 2710."""
+        """set_voltage(0, 3.3) → V+ DAC code == round(3.3/5.0*4095) == 2711."""
         from python.drivers.analog_discovery.pti import CMD_PSU_VPOS
         psu, pti = self._make()
         psu.set_voltage(channel=0, voltage=3.3)
         cmd = pti.send.call_args[0][0]
         assert cmd.cmd == CMD_PSU_VPOS
         (code,) = struct.unpack(">H", cmd.payload)
-        expected = int(3.3 / 5.0 * 4095)  # 2706
-        assert abs(code - expected) <= 1
+        expected = round(3.3 / 5.0 * 4095)  # 2711
+        assert code == expected
 
     def test_set_voltage_vneg_correct_dac_code(self):
-        """set_voltage(1, -2.5) → V- DAC code ≈ 2047."""
+        """set_voltage(1, -2.5) → V- DAC code == round(2.5/5.0*4095) == 2048."""
         from python.drivers.analog_discovery.pti import CMD_PSU_VNEG
         psu, pti = self._make()
         psu.set_voltage(channel=1, voltage=-2.5)
         cmd = pti.send.call_args[0][0]
         assert cmd.cmd == CMD_PSU_VNEG
         (code,) = struct.unpack(">H", cmd.payload)
-        expected = int(2.5 / 5.0 * 4095)  # 2047
-        assert abs(code - expected) <= 1
+        expected = round(2.5 / 5.0 * 4095)  # 2048
+        assert code == expected
 
     def test_set_voltage_vpos_out_of_range_raises(self):
         """Voltage above +5 V on V+ must raise ValueError."""
@@ -300,8 +334,8 @@ class TestPowerSupply:
         psu.enable(channel=0, enabled=True)
         cmd = pti.send.call_args[0][0]
         (code,) = struct.unpack(">H", cmd.payload)
-        expected = int(3.3 / 5.0 * 4095)
-        assert abs(code - expected) <= 1
+        expected = round(3.3 / 5.0 * 4095)
+        assert code == expected
 
 
 # ---------------------------------------------------------------------------
