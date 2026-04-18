@@ -258,9 +258,9 @@ user_content = json.dumps({
 }, indent=2)
 ```
 
-**Provider:** Configurable via `SCHDOC_LLM_PROVIDER` env var (`openai` or `anthropic`). Defaults to `openai` (consistent with the rest of the agent stack). Model defaults: `gpt-4o-mini` (OpenAI) or `claude-haiku-4-5` (Anthropic) — fast and cheap for a single structured summarization call.
+**Provider:** Anthropic SDK (`claude-haiku-4-5-20251001`) — fast and cheap for a single structured summarization call. OpenAI support planned for a later iteration.
 
-**Fallback:** If `SCHDOC_LLM_PROVIDER` is unset or the API call fails, falls back to programmatic prose assembly from the same structured fields.
+**Fallback:** If `ANTHROPIC_API_KEY` is unset or the API call fails, falls back to programmatic prose assembly from the same structured fields.
 
 ### Section 2: Power Topology
 
@@ -333,11 +333,10 @@ Also accepts `--output <path>` to specify output file.
 ## Dependencies
 
 - `olefile` — OLE container reading (pure Python, PyPI)
-- `openai` — OpenAI SDK (default LLM provider for board understanding pass)
-- `anthropic` — Anthropic SDK (optional alternative provider)
+- `anthropic` — Anthropic SDK (board understanding LLM pass)
 - Standard library only beyond that (`dataclasses`, `pathlib`, `struct`, `re`, `json`)
 
-Added to `python/requirements.txt`: `olefile`, `openai`. `anthropic` is optional.
+Added to `python/requirements.txt`: `olefile`, `anthropic`.
 
 ---
 
