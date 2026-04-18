@@ -39,10 +39,18 @@ def test_models_importable():
     assert summary.board_name == "Test Board"
 
 
+_FILE_HEADER = "|HEADER=Protel for Windows - Schematic Capture Binary File Version 5.0|"
+
+
 def _make_bytes(*records: str) -> bytes:
-    """Pack strings as length-prefixed pipe-delimited record bytes."""
+    """Pack strings as length-prefixed pipe-delimited record bytes.
+
+    A file-header record is prepended automatically so that OwnerIndex values
+    in the test data follow the real Altium convention:
+        OwnerIndex == _stream_pos - 1 of the referenced parent record.
+    """
     out = b""
-    for r in records:
+    for r in (_FILE_HEADER,) + records:
         encoded = r.encode("latin-1")
         out += struct.pack("<I", len(encoded)) + encoded
     return out
@@ -51,23 +59,25 @@ def _make_bytes(*records: str) -> bytes:
 def test_parse_stream_single_record():
     data = _make_bytes("|RECORD=1|ComponentDescription=Test IC|Location.X=100|Location.Y=200|")
     records = parse_stream(data)
-    assert len(records) == 1
-    assert records[0]["RECORD"] == "1"
-    assert records[0]["ComponentDescription"] == "Test IC"
-    assert records[0]["Location.X"] == "100"
-    assert records[0]["_stream_pos"] == 0
+    # _make_bytes prepends a file header at pos=0; RECORD=1 is at pos=1
+    assert len(records) == 2
+    comp = next(r for r in records if r.get("RECORD") == "1")
+    assert comp["ComponentDescription"] == "Test IC"
+    assert comp["Location.X"] == "100"
+    assert comp["_stream_pos"] == 1
 
 
 def test_parse_stream_multiple_records():
     data = _make_bytes(
         "|RECORD=1|ComponentDescription=IC|Location.X=100|Location.Y=100|",
-        "|RECORD=2|OwnerIndex=0|Name=VIN|Designator=1|Electrical=0|Location.X=110|Location.Y=100|",
+        "|RECORD=2|OwnerIndex=1|Name=VIN|Designator=1|Electrical=0|Location.X=110|Location.Y=100|",
     )
     records = parse_stream(data)
-    assert len(records) == 2
-    assert records[1]["RECORD"] == "2"
-    assert records[1]["OwnerIndex"] == "0"
-    assert records[1]["_stream_pos"] == 1
+    # file header at pos=0, RECORD=1 at pos=1, RECORD=2 at pos=2
+    assert len(records) == 3
+    pin = next(r for r in records if r.get("RECORD") == "2")
+    assert pin["OwnerIndex"] == "1"
+    assert pin["_stream_pos"] == 2
 
 
 def test_parse_stream_skips_empty_records():
@@ -77,13 +87,18 @@ def test_parse_stream_skips_empty_records():
         "|RECORD=1|ComponentDescription=IC|Location.X=50|Location.Y=50|",
     )
     records = parse_stream(data)
-    assert len(records) == 2
-    assert records[0]["RECORD"] == "31"
-    assert records[1]["RECORD"] == "1"
-    assert records[1]["_stream_pos"] == 2
+    # file header + RECORD=31 + (empty skipped) + RECORD=1 = 3 records
+    assert len(records) == 3
+    assert records[0]["HEADER"].startswith("Protel")
+    assert records[1]["RECORD"] == "31"
+    assert records[2]["RECORD"] == "1"
+    assert records[2]["_stream_pos"] == 3
 
 
 def test_build_components_basic():
+    # File header at pos=0, RECORD=1 at pos=1.
+    # OwnerIndex = _stream_pos - 1 (object-index, file header not counted).
+    # So children of RECORD=1 at pos=1 use OwnerIndex=0.
     data = _make_bytes(
         "|RECORD=1|ComponentDescription=Buck Converter|Location.X=100|Location.Y=200|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
@@ -106,6 +121,7 @@ def test_build_components_basic():
 
 
 def test_build_components_connector_detection():
+    # File header at pos=0, RECORD=1 at pos=1; children use OwnerIndex=0 (= pos-1)
     data = _make_bytes(
         "|RECORD=1|ComponentDescription=Molex Microfit 12-pos|Location.X=10|Location.Y=10|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=J1|",
@@ -117,6 +133,10 @@ def test_build_components_connector_detection():
 
 
 def test_build_components_multi():
+    # File header at pos=0; OwnerIndex = _stream_pos - 1 for all records.
+    # RECORD=1 (IC A) at pos=1 -> OwnerIndex=0 for children
+    # RECORD=34 at pos=2, RECORD=41 at pos=3
+    # RECORD=1 (IC B) at pos=4 -> OwnerIndex=3 for children
     data = _make_bytes(
         "|RECORD=1|ComponentDescription=IC A|Location.X=10|Location.Y=10|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
@@ -134,6 +154,7 @@ def test_build_components_multi():
 
 def test_resolve_nets_simple_wire():
     # Wire from (100,100) to (200,100), pin at (200,100), net label at (100,100)
+    # File header at pos=0; RECORD=1 at pos=1; children use OwnerIndex=0 (= pos-1)
     data = _make_bytes(
         # Component + pin at (200, 100)
         "|RECORD=1|ComponentDescription=IC|Location.X=220|Location.Y=100|",
@@ -154,6 +175,7 @@ def test_resolve_nets_simple_wire():
 
 
 def test_resolve_nets_power_port():
+    # File header at pos=0; RECORD=1 at pos=1; children use OwnerIndex=0 (= pos-1)
     data = _make_bytes(
         "|RECORD=1|ComponentDescription=IC|Location.X=120|Location.Y=100|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
@@ -169,7 +191,10 @@ def test_resolve_nets_power_port():
 
 
 def test_resolve_nets_unnamed_cluster():
-    # Two pins connected by wire, no label
+    # Two pins connected by wire, no label.
+    # File header at pos=0; OwnerIndex = _stream_pos - 1.
+    # RECORD=1 (R1) at pos=1 -> OwnerIndex=0; children at pos=2,3,4
+    # RECORD=1 (R2) at pos=5 -> OwnerIndex=4; children at pos=6,7,8
     data = _make_bytes(
         "|RECORD=1|ComponentDescription=R|Location.X=120|Location.Y=100|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=R1|",

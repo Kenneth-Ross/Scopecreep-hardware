@@ -26,7 +26,7 @@ def parse_stream(data: bytes) -> list[dict]:
         if not chunk.strip():
             stream_pos += 1
             continue
-        text = chunk.decode("latin-1").strip("|").strip()
+        text = chunk.decode("latin-1").replace("\x00", "").strip("|").strip()
         rec: dict = {"_stream_pos": stream_pos}
         for token in text.split("|"):
             if "=" in token:
@@ -63,7 +63,7 @@ def build_components(records: list[dict]) -> list[Component]:
         owner_idx = rec.get("OwnerIndex")
         if owner_idx is None:
             continue
-        parent_pos = int(owner_idx)   # OwnerIndex == parent's _stream_pos directly
+        parent_pos = int(owner_idx) + 1   # OwnerIndex is _stream_pos - 1 of the parent
         if parent_pos in comp_records:
             children[parent_pos].append(rec)
 
@@ -192,7 +192,7 @@ def resolve_nets(
     # Only include positions that produced a component (have a non-empty Designator child),
     # mirroring build_components's filter to avoid index-skew on title-block RECORD=1 entries.
     designated_positions = {
-        int(r.get("OwnerIndex", -1))
+        int(r.get("OwnerIndex", -1)) + 1   # OwnerIndex is _stream_pos - 1 of the parent
         for r in records
         if r.get("RECORD") == "34" and r.get("Name") == "Designator" and r.get("Text")
     }
@@ -214,7 +214,7 @@ def resolve_nets(
         owner_idx = rec.get("OwnerIndex")
         if owner_idx is None:
             continue
-        parent_pos = int(owner_idx)   # direct equality: OwnerIndex == parent _stream_pos
+        parent_pos = int(owner_idx) + 1   # OwnerIndex is _stream_pos - 1 of the parent
         comp = comp_by_pos.get(parent_pos)
         if comp:
             pin_records.append((comp, rec))
@@ -431,7 +431,7 @@ def parse(path: str | Path) -> SchematicSummary:
 
     comp_locations: dict[str, tuple[int, int]] = {}
     designated_positions = {
-        int(r.get("OwnerIndex", -1))
+        int(r.get("OwnerIndex", -1)) + 1   # OwnerIndex is _stream_pos - 1 of the parent
         for r in records
         if r.get("RECORD") == "34" and r.get("Name") == "Designator" and r.get("Text")
     }
