@@ -13,6 +13,7 @@ The sequence follows the Spartan-6 configuration specification:
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 
 from .transport import FtdiTransport, TransportError
 
@@ -164,11 +165,11 @@ class JtagLoader:
         if not payload:
             raise BitstreamLoadError("Bitstream payload is empty after sync word")
         num_bits = len(payload) * 8
-        self._transport.jtag_shift(payload, num_bits, last=False)
+        self._transport.jtag_shift(payload, num_bits, last=False)  # last=False: FPGA exits JTAG cfg mode autonomously via DONE; no TAP exit needed
 
     @staticmethod
     def _poll_gpio(
-        read_fn,
+        read_fn: Callable[[], bool],
         expected: bool,
         timeout_s: float,
         error_msg: str,
@@ -187,8 +188,8 @@ class JtagLoader:
         """
         deadline = time.monotonic() + timeout_s
         while True:
-            if read_fn() == expected:
-                return
             if time.monotonic() >= deadline:
                 raise BitstreamLoadError(error_msg)
+            if read_fn() == expected:
+                return
             time.sleep(_POLL_INTERVAL_S)

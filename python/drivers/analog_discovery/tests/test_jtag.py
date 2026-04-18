@@ -153,7 +153,8 @@ class TestJtagLoaderGpioSequence(unittest.TestCase):
         self.path = _make_bitstream_file()
 
     def tearDown(self):
-        os.unlink(self.path)
+        if hasattr(self, 'path') and os.path.exists(self.path):
+            os.unlink(self.path)
 
     def test_gpio_sequence_order(self):
         t = _make_transport(init_b_sequence=[False, True], done_sequence=[True])
@@ -258,6 +259,9 @@ class TestJtagLoaderBitReversedPayload(unittest.TestCase):
             expected_len = len(_SYNC_WORD) + len(payload)
             self.assertEqual(num_bits, expected_len * 8)
             self.assertEqual(len(shifted_data), expected_len)
+            # Verify last=False (FPGA exits cfg mode autonomously)
+            _, kwargs = t.jtag_shift.call_args
+            self.assertFalse(kwargs.get('last', False))
         finally:
             os.unlink(path)
 
