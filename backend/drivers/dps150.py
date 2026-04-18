@@ -66,10 +66,13 @@ class DPS150(InstrumentDriver):
             if b[0] == 0xF0:
                 rest = self._ser.read(3)  # cmd, register, length
                 if len(rest) < 3:
-                    return None
+                    continue
                 length = rest[2]
                 body = self._ser.read(length + 1)  # payload + checksum
-                return _parse_response(bytes([0xF0]) + rest + body)
+                result = _parse_response(bytes([0xF0]) + rest + body)
+                if result is not None:
+                    return result
+                # bad frame — keep scanning
         return None
 
     def set_voltage(self, volts: float) -> None:
@@ -96,6 +99,8 @@ class DPS150(InstrumentDriver):
         if result is None:
             raise IOError("No response from DPS-150")
         _, p = result
+        if len(p) < 119:
+            raise IOError(f"get_all_state: short payload ({len(p)} bytes, expected ≥119)")
         return {
             'input_voltage':  struct.unpack_from('<f', p, 0)[0],
             'voltage_set':    struct.unpack_from('<f', p, 4)[0],

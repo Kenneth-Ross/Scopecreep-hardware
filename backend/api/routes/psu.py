@@ -29,10 +29,15 @@ def _require_connection() -> DPS150:
 @router.post("/connect")
 def connect(req: ConnectRequest):
     global _driver
+    import serial as _serial
     if _driver and _driver.is_connected:
         _driver.disconnect()
     _driver = DPS150(port=req.port, baud=PSU_BAUD, timeout=PSU_TIMEOUT)
-    _driver.connect()
+    try:
+        _driver.connect()
+    except _serial.SerialException as e:
+        _driver = None
+        raise HTTPException(status_code=503, detail=f"Cannot open port {req.port}: {e}")
     return {"status": "connected", "port": req.port}
 
 
