@@ -92,15 +92,16 @@ def build_components(records: list[dict]) -> list[Component]:
             elif r == "45":
                 footprint = kid.get("ModelDatafileEntity0", "")
 
-        components.append(Component(
-            designator=designator,
-            value=value,
-            description=description,
-            part_number=part_number,
-            manufacturer=manufacturer,
-            footprint=footprint,
-            is_connector=_is_connector(designator, description, footprint),
-            pins=[],
-        ))
+        if designator:
+            components.append(Component(
+                designator=designator,
+                value=value,
+                description=description,
+                part_number=part_number,
+                manufacturer=manufacturer,
+                footprint=footprint,
+                is_connector=_is_connector(designator, description, footprint),
+                pins=[],
+            ))
 
     return components

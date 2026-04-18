@@ -425,7 +425,7 @@ def build_components(records: list[dict]) -> list[Component]:
         owner_idx = rec.get("OwnerIndex")
         if owner_idx is None:
             continue
-        parent_pos = int(owner_idx) + 1
+        parent_pos = int(owner_idx)   # direct equality: OwnerIndex == parent _stream_pos
         if parent_pos in comp_records:
             children[parent_pos].append(rec)
 
@@ -675,7 +675,7 @@ def resolve_nets(
         owner_idx = rec.get("OwnerIndex")
         if owner_idx is None:
             continue
-        parent_pos = int(owner_idx) + 1
+        parent_pos = int(owner_idx)   # direct equality: OwnerIndex == parent _stream_pos
         comp = comp_by_pos.get(parent_pos)
         if comp:
             pin_records.append((comp, rec))
