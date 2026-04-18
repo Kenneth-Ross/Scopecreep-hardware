@@ -55,4 +55,6 @@ class TestSession:
     created_at: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
+        # Not a dataclass field — excluded from __repr__, asdict(), and equality
+        # checks. Each instance gets its own independent Event, never shared.
         self._resume_event: asyncio.Event = asyncio.Event()

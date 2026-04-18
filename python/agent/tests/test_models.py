@@ -17,6 +17,12 @@ def test_session_has_resume_event():
     assert not s._resume_event.is_set()
 
 
+def test_resume_events_are_distinct_per_session():
+    a = TestSession(schematic={})
+    b = TestSession(schematic={})
+    assert a._resume_event is not b._resume_event
+
+
 def test_session_id_is_unique():
     a = TestSession(schematic={})
     b = TestSession(schematic={})
