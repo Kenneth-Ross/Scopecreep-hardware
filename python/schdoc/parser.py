@@ -32,6 +32,6 @@ def parse_stream(data: bytes) -> list[dict]:
                 key, _, val = token.partition("=")
                 rec[key.strip()] = val.strip()
         stream_pos += 1
-        if rec:
+        if len(rec) > 1:
             records.append(rec)
     return records
