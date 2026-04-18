@@ -4,7 +4,6 @@ from schdoc.models import (
     Zone, ProbePoint, SchematicSummary,
 )
 from schdoc.parser import parse_stream, build_components, resolve_nets, extract_zones
-from schdoc.models import Component
 
 
 def test_models_importable():

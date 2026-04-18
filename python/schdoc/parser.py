@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import struct
 from pathlib import Path
 
@@ -187,12 +188,23 @@ def resolve_nets(
             if pt:
                 uf.find(pt)
 
-    # Build index: _stream_pos of RECORD=1 -> Component
+    # Build index: _stream_pos of RECORD=1 → Component.
+    # Only include positions that produced a component (have a non-empty Designator child),
+    # mirroring build_components's filter to avoid index-skew on title-block RECORD=1 entries.
+    designated_positions = {
+        int(r.get("OwnerIndex", -1))
+        for r in records
+        if r.get("RECORD") == "34" and r.get("Name") == "Designator" and r.get("Text")
+    }
     comp_by_pos: dict[int, Component] = {}
-    comp_rec_list = [r for r in records if r.get("RECORD") == "1"]
-    for idx, crec in enumerate(comp_rec_list):
-        if idx < len(components):
-            comp_by_pos[crec["_stream_pos"]] = components[idx]
+    comp_iter = iter(components)
+    for crec in records:
+        if crec.get("RECORD") != "1":
+            continue
+        if crec["_stream_pos"] in designated_positions:
+            comp = next(comp_iter, None)
+            if comp:
+                comp_by_pos[crec["_stream_pos"]] = comp
 
     # Collect pin records per component
     pin_records: list[tuple[Component, dict]] = []
@@ -296,7 +308,6 @@ def extract_zones(
 
 
 def _parse_nominal_voltage(name: str) -> float | None:
-    import re
     n = name.upper().strip()
     if n == "GND":
         return 0.0
@@ -336,7 +347,6 @@ def _build_probe_points(
     nets: dict[str, list[PinRef]],
     power_rail_names: set[str],
 ) -> list[ProbePoint]:
-    import re
     probes: list[ProbePoint] = []
 
     def _expected_range(net: str) -> str:
@@ -353,10 +363,13 @@ def _build_probe_points(
             return "0–3.3V analog"
         return "TBD"
 
-    # Physical test points first
+    # Physical test points first (TP* prefix, or J* with "test" in description)
     for comp in components:
         desc = comp.description.lower()
-        if comp.designator.startswith("J") and "test" in desc:
+        is_tp = comp.designator.upper().startswith("TP") or (
+            comp.designator.startswith("J") and "test" in desc
+        )
+        if is_tp:
             for pin in comp.pins:
                 probes.append(ProbePoint(
                     label=f"{comp.designator}.{pin.number}",
@@ -417,12 +430,20 @@ def parse(path: str | Path) -> SchematicSummary:
     components = build_components(records)
 
     comp_locations: dict[str, tuple[int, int]] = {}
-    comp_rec_list = [r for r in records if r.get("RECORD") == "1"]
-    for idx, crec in enumerate(comp_rec_list):
-        if idx < len(components):
+    designated_positions = {
+        int(r.get("OwnerIndex", -1))
+        for r in records
+        if r.get("RECORD") == "34" and r.get("Name") == "Designator" and r.get("Text")
+    }
+    comp_iter = iter(components)
+    for crec in records:
+        if crec.get("RECORD") != "1" or crec["_stream_pos"] not in designated_positions:
+            continue
+        comp = next(comp_iter, None)
+        if comp:
             pt = _xy(crec)
             if pt:
-                comp_locations[components[idx].designator] = pt
+                comp_locations[comp.designator] = pt
 
     nets = resolve_nets(records, components)
     zones = extract_zones(records, components, comp_locations)
