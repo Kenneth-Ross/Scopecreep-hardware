@@ -109,3 +109,25 @@ def test_tier1_pass_range():
 def test_tier1_fail_range():
     verdict = evaluate_tier1({"v_mean": 1.5}, "0-0.5V")
     assert verdict == "FAIL"
+
+
+def test_tier1_marginal_above_upper():
+    # v_mean exceeds the upper bound but stays within 2x tolerance
+    verdict = evaluate_tier1({"v_mean": 3.47}, "3.3V ± 5%")
+    assert verdict == "MARGINAL"
+
+
+def test_tier1_marginal_range():
+    # v_mean above the range but within 2x tolerance
+    verdict = evaluate_tier1({"v_mean": 0.74}, "0-0.5V")
+    assert verdict == "MARGINAL"
+
+
+def test_tier1_raises_on_missing_v_mean():
+    with pytest.raises(ValueError, match="v_mean"):
+        evaluate_tier1({}, "3.3V ± 5%")
+
+
+def test_tier1_raises_on_none_v_mean():
+    with pytest.raises(ValueError, match="v_mean"):
+        evaluate_tier1({"v_mean": None}, "3.3V ± 5%")

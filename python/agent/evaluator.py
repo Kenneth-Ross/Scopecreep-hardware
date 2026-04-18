@@ -65,7 +65,10 @@ def evaluate_tier1(measurements: dict[str, Any], expected_range: str) -> str:
     FAIL     — v_mean is more than 2x the tolerance outside the bounds.
     MARGINAL — v_mean is between 1x and 2x the tolerance outside the bounds.
     """
-    v_mean = float(measurements.get("v_mean", 0.0))
+    raw = measurements.get("v_mean")
+    if raw is None:
+        raise ValueError("measurements must contain a numeric 'v_mean' key")
+    v_mean = float(raw)
     b = parse_expected_range(expected_range)
 
     in_range = True
