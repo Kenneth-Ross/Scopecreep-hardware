@@ -57,6 +57,15 @@ def test_handle_psu_configure_disable():
     result = handle_psu_configure({"channel": 0, "voltage": 0.0, "enabled": False}, hw)
     assert result["status"] == "ok"
     hw.analog_discovery.psu.enable.assert_called_once_with(0, False)
+    hw.analog_discovery.psu.set_voltage.assert_not_called()
+
+
+def test_handle_psu_configure_negative_voltage_rejected():
+    from agent.tools import handle_psu_configure
+    hw = _make_hw()
+    result = handle_psu_configure({"channel": 0, "voltage": -5.0, "enabled": True}, hw)
+    assert "error" in result
+    hw.analog_discovery.psu.set_voltage.assert_not_called()
 
 
 def test_handle_psu_configure_voltage_clamp():
@@ -157,7 +166,7 @@ async def test_handle_record_result_marginal_escalates_to_tier2():
     from agent.tools import handle_record_result
     session = _make_session()
 
-    with patch("agent.evaluator.evaluate_tier2", new=AsyncMock(return_value=("FAIL", "Ripple too high."))):
+    with patch("agent.tools.evaluate_tier2", new=AsyncMock(return_value=("FAIL", "Ripple too high."))):
         result = await handle_record_result(
             {
                 "probe_point_label": "TP1",
@@ -168,6 +177,7 @@ async def test_handle_record_result_marginal_escalates_to_tier2():
             session,
         )
     assert result["tier"] == 2
+    assert session.results[0].verdict == "FAIL"  # tier-2 overrides to FAIL
     assert session.results[0].tier == 2
 
 

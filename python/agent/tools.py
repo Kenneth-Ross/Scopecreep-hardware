@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import Any
 import numpy as np
 
-from .config import MAX_VOLTAGE, MAX_CURRENT
+from .config import MAX_VOLTAGE
+from .evaluator import evaluate_tier1, evaluate_tier2
 from .models import HardwareContext, ProbeInstruction, SessionState, TestResult, TestSession
 
 TOOL_SCHEMAS: list[dict] = [
@@ -101,8 +102,8 @@ def handle_psu_configure(inputs: dict[str, Any], hw: HardwareContext) -> dict:
     voltage = float(inputs["voltage"])
     enabled = bool(inputs["enabled"])
 
-    if voltage > MAX_VOLTAGE:
-        return {"error": f"Voltage {voltage} V exceeds safety limit {MAX_VOLTAGE} V"}
+    if not (0.0 <= voltage <= MAX_VOLTAGE):
+        return {"error": f"Voltage {voltage} V is outside safe range 0–{MAX_VOLTAGE} V"}
 
     if enabled:
         hw.analog_discovery.psu.set_voltage(channel, voltage)
@@ -147,8 +148,6 @@ def handle_require_probe(inputs: dict[str, Any], session: TestSession) -> dict:
 
 
 async def handle_record_result(inputs: dict[str, Any], session: TestSession) -> dict:
-    from .evaluator import evaluate_tier1, evaluate_tier2
-
     probe_points = session.schematic.get("probe_points", [])
     pp = next((p for p in probe_points if p["label"] == inputs["probe_point_label"]), {})
     expected_range = pp.get("expected_range", "unknown")
