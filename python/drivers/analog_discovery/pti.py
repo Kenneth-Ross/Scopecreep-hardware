@@ -68,7 +68,7 @@ class PTICommand:
 
     cmd: int
     port: int
-    payload: bytes = field(default_factory=bytes)
+    payload: bytes = field(default=b"")
     response_size: int = 0
 
 
@@ -143,6 +143,10 @@ class PTIController:
             The fully-formed frame ready for transmission.
         """
         payload = cmd.payload
+        if len(payload) > 256:
+            raise ValueError(
+                f"PTI payload too large: {len(payload)} bytes, protocol maximum is 256"
+            )
         length_byte = (len(payload) - 1) if payload else 0
         header = bytes([
             0x00, 0x00, 0x00, 0x00,  # zero padding
@@ -187,6 +191,13 @@ class PTIController:
             raise PTIError(
                 f"Command byte mismatch: expected 0x{cmd.cmd:02X}, "
                 f"got 0x{cmd_byte:02X}"
+            )
+
+        actual_payload_len = len(raw) - 8
+        if actual_payload_len < cmd.response_size:
+            raise PTIError(
+                f"Response payload too short: expected {cmd.response_size} bytes, "
+                f"got {actual_payload_len}"
             )
 
         return raw[8:]
@@ -235,6 +246,7 @@ def scope_arm(
         Ready-to-send :class:`PTICommand`.
     """
     payload = struct.pack(">BhBH", source, level_raw, edge, pretrig)
+    # port=0: trigger source is encoded in the payload, not the port field
     return PTICommand(cmd=CMD_SCOPE_ARM, port=0, payload=payload)
 
 
@@ -268,6 +280,8 @@ def awg_data(ch: int, dac_words: bytes) -> PTICommand:
     Returns:
         Ready-to-send :class:`PTICommand`.
     """
+    if len(dac_words) % 2 != 0:
+        raise ValueError("dac_words length must be a multiple of 2 (16-bit words)")
     return PTICommand(cmd=CMD_AWG_DATA, port=ch, payload=dac_words)
 
 

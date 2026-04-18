@@ -114,6 +114,13 @@ class TestPack:
             cmd = PTICommand(cmd=0x01, port=0, payload=bytes(n))
             assert len(ctrl._pack(cmd)) == 8 + n
 
+    def test_pack_raises_on_oversized_payload(self):
+        """_pack() raises ValueError for payloads larger than 256 bytes."""
+        ctrl, _ = make_controller()
+        cmd = PTICommand(cmd=CMD_AWG_DATA, port=0, payload=bytes(257))
+        with pytest.raises(ValueError):
+            ctrl._pack(cmd)
+
 
 # ---------------------------------------------------------------------------
 # send() tests
@@ -221,6 +228,15 @@ class TestUnpackResponse:
         result = ctrl._unpack_response(cmd, raw)
         assert result == b""
 
+    def test_unpack_raises_on_short_payload(self):
+        """_unpack_response() raises PTIError when response payload is shorter than response_size."""
+        ctrl, _ = make_controller()
+        cmd = scope_read(ch=0, n_samples=100)  # response_size = 200
+        # Header valid, but only 5 bytes of payload instead of 200
+        ack = bytes([0, 0, 0, 0, 0x05, 0x02, CMD_SCOPE_READ, 0]) + bytes(5)
+        with pytest.raises(PTIError):
+            ctrl._unpack_response(cmd, ack)
+
 
 # ---------------------------------------------------------------------------
 # Convenience constructor tests
@@ -254,6 +270,11 @@ class TestConvenienceConstructors:
         assert cmd.cmd == CMD_AWG_DATA
         assert cmd.port == 0
         assert cmd.payload == dac_words
+
+    def test_awg_data_raises_on_odd_payload(self):
+        """awg_data() raises ValueError when dac_words length is not a multiple of 2."""
+        with pytest.raises(ValueError):
+            awg_data(ch=0, dac_words=bytes(3))
 
     def test_awg_enable_true(self):
         cmd = awg_enable(ch=1, enabled=True)
