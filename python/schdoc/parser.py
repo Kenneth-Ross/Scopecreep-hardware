@@ -114,9 +114,13 @@ class _UnionFind:
     def find(self, x: tuple[int, int]) -> tuple[int, int]:
         if x not in self._parent:
             self._parent[x] = x
-        if self._parent[x] != x:
-            self._parent[x] = self.find(self._parent[x])
-        return self._parent[x]
+            return x
+        root = x
+        while self._parent[root] != root:
+            root = self._parent[root]
+        while self._parent[x] != root:
+            self._parent[x], x = root, self._parent[x]
+        return root
 
     def union(self, a: tuple[int, int], b: tuple[int, int]) -> None:
         self._parent[self.find(a)] = self.find(b)
@@ -203,8 +207,12 @@ def resolve_nets(
         if comp:
             pin_records.append((comp, rec))
 
-    # Register pin locations in union-find
+    # Register pin locations in union-find; clear any stale pins from prior calls
+    seen_comps: set[int] = set()
     for comp, prec in pin_records:
+        if id(comp) not in seen_comps:
+            comp.pins = []
+            seen_comps.add(id(comp))
         pt = _xy(prec)
         if pt:
             uf.find(pt)
