@@ -1,8 +1,26 @@
 #!/usr/bin/env python3
 """
-Set voltage and current on DPS-150, enable output, read back measurements.
-Usage: python3 set_voltage.py /dev/cu.usbmodemXXXX <voltage> <current_limit>
-Example: python3 set_voltage.py /dev/cu.usbmodem1480DFDC40251 5.0 0.2
+Set voltage and current limit on DPS-150, enable output, read back measurements.
+
+Usage:
+  python3 set_voltage.py <port> <voltage> <current_limit> [resistance_ohms]
+
+Arguments:
+  port             Serial port (e.g. /dev/cu.usbmodem1480DFDC40251)
+  voltage          Output voltage in volts (e.g. 5.0)
+  current_limit    Current limit in amps (e.g. 0.2 for 200mA)
+  resistance_ohms  Optional: load resistance in ohms. If provided, expected
+                   current is calculated and shown alongside measurements.
+
+Examples:
+  # Open circuit — validate voltage only
+  python3 set_voltage.py /dev/cu.usbmodem1480DFDC40251 5.0 0.2
+
+  # With 33 ohm resistor — expect ~150mA at 5V, limit won't trigger
+  python3 set_voltage.py /dev/cu.usbmodem1480DFDC40251 5.0 0.2 33
+
+  # Wire short (0 ohm) — expect current limit to clamp at 200mA (CC mode)
+  python3 set_voltage.py /dev/cu.usbmodem1480DFDC40251 5.0 0.2 0
 """
 
 import sys
@@ -10,9 +28,14 @@ import struct
 import serial
 import time
 
-PORT    = sys.argv[1] if len(sys.argv) > 1 else '/dev/cu.usbmodem1480DFDC40251'
-VOLTS   = float(sys.argv[2]) if len(sys.argv) > 2 else 5.0
-AMPS    = float(sys.argv[3]) if len(sys.argv) > 3 else 0.2
+if len(sys.argv) < 4:
+    print(__doc__)
+    sys.exit(1)
+
+PORT    = sys.argv[1]
+VOLTS   = float(sys.argv[2])
+AMPS    = float(sys.argv[3])
+OHMS    = float(sys.argv[4]) if len(sys.argv) > 4 else None
 
 BAUD    = 115200
 DELAY   = 0.05
@@ -61,7 +84,13 @@ time.sleep(DELAY)
 ser.write(build(0xB1, 0xDB, bytes([0x01])))
 time.sleep(DELAY)
 
-print(f"Set {VOLTS}V / {AMPS}A — output ON")
+if OHMS is not None:
+    expected_i = min(VOLTS / OHMS, AMPS) if OHMS > 0 else AMPS
+    expected_mode = "CC (current limited)" if OHMS == 0 or (VOLTS / OHMS) >= AMPS else "CV (voltage regulated)"
+    print(f"Set {VOLTS}V / {AMPS}A limit — load {OHMS}Ω")
+    print(f"Expected: {expected_i:.4f}A  mode: {expected_mode}")
+else:
+    print(f"Set {VOLTS}V / {AMPS}A limit — no load specified")
 print("Reading measurements for 3 seconds...")
 
 for _ in range(6):
