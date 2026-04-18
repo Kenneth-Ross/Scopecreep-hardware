@@ -91,17 +91,27 @@ class TestFtdiTransportInstantiation(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestOpenRaisesOnMissingDevice(unittest.TestCase):
+    # Use explicit patch so the test is isolated from whichever Ftdi stub or
+    # real library ends up in sys.modules depending on collection order.
+    def _make_failing_ftdi(self):
+        """Return a mock Ftdi class whose open_mpsse_from_url raises IOError."""
+        mock_instance = MagicMock()
+        mock_instance.open_mpsse_from_url.side_effect = IOError("No FTDI device")
+        return MagicMock(return_value=mock_instance)
+
     def test_open_raises_transport_error_no_device(self):
         t = FtdiTransport()
-        with self.assertRaises(TransportError) as ctx:
-            t.open()
+        with patch("drivers.analog_discovery.transport.Ftdi", self._make_failing_ftdi()):
+            with self.assertRaises(TransportError) as ctx:
+                t.open()
         self.assertIn("Failed to open FTDI device", str(ctx.exception))
 
     def test_open_custom_url_in_error_message(self):
         t = FtdiTransport()
         url = "ftdi://0x0403:0x6014/2"
-        with self.assertRaises(TransportError) as ctx:
-            t.open(url)
+        with patch("drivers.analog_discovery.transport.Ftdi", self._make_failing_ftdi()):
+            with self.assertRaises(TransportError) as ctx:
+                t.open(url)
         self.assertIn(url, str(ctx.exception))
 
 
