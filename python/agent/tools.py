@@ -212,3 +212,16 @@ async def dispatch_tool(
         session.state = SessionState.EVALUATING
         return await handle_record_result(inputs, session)
     return {"error": f"Unknown tool: {name}"}
+
+
+OPENAI_TOOL_SCHEMAS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": s["name"],
+            "description": s["description"],
+            "parameters": s["input_schema"],
+        },
+    }
+    for s in TOOL_SCHEMAS
+]

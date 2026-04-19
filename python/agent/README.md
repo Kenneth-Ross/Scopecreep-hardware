@@ -1,6 +1,6 @@
 # Agent Orchestration Layer
 
-Drives an autonomous hardware test session using Claude. Reads a parsed schematic, controls the PSU and oscilloscope via the Analog Discovery driver, and determines pass/fail per probe point.
+Drives an autonomous hardware test session using OpenAI. Reads a parsed schematic, controls the PSU and oscilloscope via the Analog Discovery driver, and determines pass/fail per probe point.
 
 No plugin integration required — the REST API is the seam.
 
@@ -12,17 +12,17 @@ No plugin integration required — the REST API is the seam.
 POST /agent/sessions   ← start with SchematicSummary JSON
         │
         ▼
-Claude tool-use loop
+OpenAI function-call loop
         ├── psu_configure   → Analog Discovery PSU
         ├── require_probe   → pauses; plugin shows probe instruction to user
         ├── scope_capture   → Analog Discovery oscilloscope
-        └── record_result   → tier-1 numeric verdict; claude -p for MARGINAL
+        └── record_result   → tier-1 numeric verdict; openai for MARGINAL
         │
         ▼
 GET /agent/sessions/{id}/report   ← PASS / FAIL / PARTIAL + per-point results
 ```
 
-**Probe pause/resume:** When Claude calls `require_probe`, the session enters `probe_required` state and blocks. The plugin calls `POST /agent/sessions/{id}/resume` once the user has placed the probe, and the loop continues.
+**Probe pause/resume:** When OpenAI calls `require_probe`, the session enters `probe_required` state and blocks. The plugin calls `POST /agent/sessions/{id}/resume` once the user has placed the probe, and the loop continues.
 
 ---
 
@@ -113,9 +113,9 @@ Parses `expected_range` strings and checks `v_mean` against numeric bounds:
 
 Verdict: **PASS** (within bounds) / **FAIL** (>2× outside) / **MARGINAL** (1–2× outside).
 
-**Tier 2 — Claude judgment (MARGINAL only)**
+**Tier 2 — OpenAI judgment (MARGINAL only)**
 
-Shells out to `claude -p` with probe point metadata, waveform stats, and board context. Returns `PASS` or `FAIL` with a reasoning string. No API key config needed — reuses Claude Code auth.
+Calls the OpenAI API with probe point metadata, waveform stats, and board context. Returns `PASS` or `FAIL` with a reasoning string. Requires `OPENAI_API_KEY` in the environment (or `.env`).
 
 ---
 
@@ -124,7 +124,7 @@ Shells out to `claude -p` with probe point metadata, waveform stats, and board c
 All via environment variables:
 
 ```bash
-AGENT_MODEL=claude-sonnet-4-6       # model for runner loop (needs ANTHROPIC_API_KEY)
+OPENAI_MODEL=gpt-5-mini             # model for runner loop (needs OPENAI_API_KEY)
 AGENT_MAX_TOKENS=4096
 AGENT_MAX_TOOL_ROUNDS=30            # safety cap on loop iterations
 SCOPE_BACKEND=waveforms             # "waveforms" (pydwf, stock firmware) | "pti" (custom bitstream)
@@ -142,16 +142,16 @@ SESSION_TTL_SECONDS=3600
 |------|---------------|
 | `config.py` | Env-based configuration |
 | `models.py` | `TestSession`, `SessionState`, `ProbeInstruction`, `TestResult` |
-| `evaluator.py` | Tier-1 range parser + verdict; tier-2 `claude -p` call |
+| `evaluator.py` | Tier-1 range parser + verdict; tier-2 OpenAI call |
 | `tools.py` | Tool schemas (JSON) + Python handlers; hardware safety clamps |
-| `runner.py` | Async Claude tool-use loop; session lifecycle |
+| `runner.py` | Async OpenAI function-call loop; session lifecycle |
 | `server.py` | FastAPI router mounted at `/agent/*` |
 
 ---
 
 ## Running the demo
 
-No hardware or API key needed:
+No hardware needed (requires `OPENAI_API_KEY`):
 
 ```bash
 cd python/
