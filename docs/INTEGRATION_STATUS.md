@@ -82,8 +82,12 @@ Registered in `Scopecreep/src/main/kotlin/com/scopecreep/ScopecreepToolWindowFac
     `from api.server import app`.
 - Passes env vars from settings (`SCOPECREEP_SUPABASE_URL`,
   `SCOPECREEP_SUPABASE_ANON_KEY`, `SCOPECREEP_NEBIUS_API_KEY` to the memory
-  worker; `ANTHROPIC_API_KEY` to the agent worker).
-- SIGTERM + 2s wait → SIGKILL on project close.
+  worker; `OPENAI_API_KEY`, `OPENAI_MODEL`, `MAX_VOLTAGE`, `MAX_CURRENT`,
+  and `PSU_PORT` to the agent worker, each only if the settings field is
+  non-blank).
+- SIGTERM + 2s wait → SIGKILL on **IDE exit** (the service is
+  `Service.Level.APP`, so sidecars are shared across projects and only die
+  when the IDE itself shuts down — not when a project closes).
 
 ### Gradle bundling
 
@@ -102,7 +106,8 @@ Registered in `Scopecreep/src/main/kotlin/com/scopecreep/ScopecreepToolWindowFac
 ### Settings
 
 `Scopecreep/src/main/kotlin/com/scopecreep/settings/ScopecreepSettings.kt`
-adds `agentPort: Int = 8000` and `anthropicApiKey: String`. The configurable
+adds `agentPort: Int = 8000`, `maxVoltage`, `maxCurrent`, and `psuPort`.
+The configurable
 UI (`ScopecreepSettingsConfigurable.kt`) exposes both in the Sidecar group.
 Round-trip test in `ScopecreepSettingsTest.kt`.
 
@@ -303,3 +308,36 @@ Backend entry points:
 
 Plan file (for context):
 - `/home/alex/.claude/plans/while-orchrestration-for-llm-quirky-mist.md`
+
+---
+
+## Known issues (unresolved on this branch)
+
+### Firmware tab: Supabase RLS rejects anon-key inserts
+
+`Scopecreep/supabase/migrations/002_firmware_jobs.sql` gates all four
+policies on `to authenticated with check (author_id = auth.uid())`. The
+plugin's `FirmwareClient` sends the Supabase **anon key** — which is the
+`anon` role, not `authenticated` — so no policy matches and every call
+(insert, select, update) returns 401/403 or an empty rowset. Even if the
+request were upgraded to `authenticated`, `createJob` never populates
+`author_id`, and `NULL = auth.uid()` is not true, so the insert would
+still be rejected.
+
+**Impact:** the Firmware tab cannot create or observe jobs today. This
+does not affect any other tab.
+
+**Fix paths (pick one, tracked as a follow-up):**
+
+1. **MVP-open policy** — change the migration to allow
+   `to anon, authenticated` with `using (true)` / `with check (true)` on
+   `firmware_jobs`. Acceptable while the table is staging data; document
+   that it trusts the client.
+2. **Real auth** — add a JWT field to `ScopecreepSettings`, send it as
+   `Authorization: Bearer <jwt>` instead of the anon key, and add
+   `default auth.uid()` to the `author_id` column so inserts don't need
+   to supply it.
+
+Option 1 is the fast path to a working demo; option 2 is correct for
+production. Decision deferred. Do **not** enable the Firmware tab in a
+demo until one of these lands.
