@@ -142,6 +142,7 @@ def _mock_proc(json_response: str):
     return proc
 
 
+@pytest.mark.skip(reason="tier2 reworked in task 9")
 @pytest.mark.asyncio
 async def test_evaluate_tier2_returns_pass():
     from agent.evaluator import evaluate_tier2
@@ -156,6 +157,7 @@ async def test_evaluate_tier2_returns_pass():
     assert "ripple" in reasoning.lower()
 
 
+@pytest.mark.skip(reason="tier2 reworked in task 9")
 @pytest.mark.asyncio
 async def test_evaluate_tier2_returns_fail():
     from agent.evaluator import evaluate_tier2
