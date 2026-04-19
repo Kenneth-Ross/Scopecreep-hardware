@@ -42,6 +42,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="jbhack Hardware Backend", lifespan=lifespan)
 
+from agent.server import router as _agent_router
+app.include_router(_agent_router)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
