@@ -10,8 +10,22 @@ from pydantic import BaseModel
 
 from .models import HardwareContext, SessionState, TestSession
 from .runner import run_session
-from .config import SCOPE_BITSTREAM, SCOPE_URL, SESSION_TTL_SECONDS
-from drivers.analog_discovery.driver import AnalogDiscovery
+from .config import SCOPE_BACKEND, SCOPE_BITSTREAM, SCOPE_URL, SESSION_TTL_SECONDS
+
+
+def _build_device(backend: str, bitstream: str, url: str):
+    """Pick the hardware driver implementation by backend name."""
+    if backend == "waveforms":
+        from drivers.analog_discovery.waveforms_driver import WaveFormsAnalogDiscovery
+        device = WaveFormsAnalogDiscovery()
+        device.connect()
+        return device
+    if backend == "pti":
+        from drivers.analog_discovery.driver import AnalogDiscovery
+        device = AnalogDiscovery(bitstream)
+        device.connect(url=url)
+        return device
+    raise ValueError(f"Unknown SCOPE_BACKEND {backend!r}. Valid: waveforms, pti")
 
 router = APIRouter(prefix="/agent")
 
@@ -25,11 +39,11 @@ class StartSessionRequest(BaseModel):
 
 @router.post("/sessions")
 async def start_session(req: StartSessionRequest):
+    backend = req.config.get("scope_backend", SCOPE_BACKEND)
     bitstream = req.config.get("scope_bitstream", SCOPE_BITSTREAM)
     url = req.config.get("scope_url", SCOPE_URL)
 
-    device = AnalogDiscovery(bitstream)
-    device.connect(url=url)
+    device = _build_device(backend, bitstream, url)
 
     hw = HardwareContext(analog_discovery=device)
     session = TestSession(

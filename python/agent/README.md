@@ -127,8 +127,9 @@ All via environment variables:
 AGENT_MODEL=claude-sonnet-4-6       # model for runner loop (needs ANTHROPIC_API_KEY)
 AGENT_MAX_TOKENS=4096
 AGENT_MAX_TOOL_ROUNDS=30            # safety cap on loop iterations
-SCOPE_BITSTREAM=/path/to/file.bit
-SCOPE_URL=ftdi://0x0403:0x6014/1
+SCOPE_BACKEND=waveforms             # "waveforms" (pydwf, stock firmware) | "pti" (custom bitstream)
+SCOPE_BITSTREAM=/path/to/file.bit   # required only when SCOPE_BACKEND=pti
+SCOPE_URL=ftdi://0x0403:0x6014/1    # required only when SCOPE_BACKEND=pti
 MAX_VOLTAGE=5.0                     # Analog Discovery V+/V− hardware limit
 SESSION_TTL_SECONDS=3600
 ```

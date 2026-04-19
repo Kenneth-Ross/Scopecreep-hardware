@@ -21,10 +21,9 @@ def _make_client():
     app = FastAPI()
     app.include_router(router)
 
-    with patch("agent.server.AnalogDiscovery") as mock_ad_cls, \
+    with patch("agent.server._build_device") as mock_build, \
          patch("agent.server.run_session", new=AsyncMock()):
-        mock_ad = MagicMock()
-        mock_ad_cls.return_value = mock_ad
+        mock_build.return_value = MagicMock()
         client = TestClient(app, raise_server_exceptions=False)
         yield client
 
