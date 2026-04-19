@@ -1,0 +1,23 @@
+# python/executor/prompts.py
+from __future__ import annotations
+
+import sys
+from typing import TextIO
+
+
+def wait_enter(msg: str, stdin: TextIO | None = None) -> None:
+    stdin = stdin or sys.stdin
+    sys.stdout.write(msg + "\n")
+    sys.stdout.flush()
+    stdin.readline()
+
+
+def confirm(msg: str, stdin: TextIO | None = None, default_yes: bool = False) -> bool:
+    stdin = stdin or sys.stdin
+    suffix = " [Y/n] " if default_yes else " [y/N] "
+    sys.stdout.write(msg + suffix)
+    sys.stdout.flush()
+    line = stdin.readline().strip().lower()
+    if not line:
+        return default_yes
+    return line in ("y", "yes")
