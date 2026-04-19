@@ -6,14 +6,20 @@ all four instrument subsystems: oscilloscope, AWG, power supply, and DIO.
 
 from __future__ import annotations
 
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from drivers.analog_discovery import AnalogDiscovery, TransportError, BitstreamLoadError
+from schdoc.parser import parse
+from schdoc.llm import generate_understanding
+from schdoc.renderer import render
 
 # ---------------------------------------------------------------------------
 # Module-level device state
@@ -109,6 +115,29 @@ class DIODirectionRequest(BaseModel):
 class DIOWriteRequest(BaseModel):
     pin_mask: int
     value: int
+
+
+# ---------------------------------------------------------------------------
+# Schematic parsing endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/schematic/parse", response_class=PlainTextResponse)
+async def schematic_parse(file: UploadFile = File(...)):
+    """Accept a .SchDoc upload and return a Markdown schematic summary."""
+    if not file.filename or not file.filename.lower().endswith(".schdoc"):
+        raise HTTPException(status_code=400, detail="File must be a .SchDoc file")
+    data = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=".SchDoc", delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = Path(tmp.name)
+    try:
+        summary = parse(tmp_path)
+        summary.understanding = generate_understanding(summary)
+        return render(summary)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Parse error: {exc}") from exc
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

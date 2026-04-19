@@ -363,3 +363,42 @@ def test_dio_503_if_not_connected():
     with TestClient(app) as tc:
         r = tc.get("/dio/read")
     assert r.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# /schematic/parse
+# ---------------------------------------------------------------------------
+
+def test_schematic_parse_returns_markdown():
+    """POST /schematic/parse with a mocked SchDoc returns Markdown text."""
+    from unittest.mock import patch, MagicMock
+    from api.server import app
+    from schdoc.models import SchematicSummary
+
+    mock_summary = SchematicSummary(
+        board_name="Test", understanding="A test board.",
+        power_rails=[], zones=[], connectors=[], probe_points=[], nets={},
+    )
+    fake_md = "# Test — Schematic Summary\n\n## Board Understanding\n\nA test board."
+
+    with patch("api.server.parse", return_value=mock_summary), \
+         patch("api.server.generate_understanding", return_value="A test board."), \
+         patch("api.server.render", return_value=fake_md):
+        with TestClient(app) as tc:
+            r = tc.post(
+                "/schematic/parse",
+                files={"file": ("Main.SchDoc", b"\xd0\xcf\x11\xe0fake", "application/octet-stream")},
+            )
+    assert r.status_code == 200
+    assert "## Board Understanding" in r.text
+
+
+def test_schematic_parse_rejects_non_schdoc():
+    """POST /schematic/parse with a non-.SchDoc filename returns 400."""
+    from api.server import app
+    with TestClient(app) as tc:
+        r = tc.post(
+            "/schematic/parse",
+            files={"file": ("schematic.pdf", b"fake", "application/octet-stream")},
+        )
+    assert r.status_code == 400
