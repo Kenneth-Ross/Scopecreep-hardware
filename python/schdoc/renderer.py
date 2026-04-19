@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .mermaid import render_mermaid
 from .models import SchematicSummary, PowerRail, Zone, Component
 
 
@@ -7,9 +8,21 @@ def render(summary: SchematicSummary) -> str:
         _section_understanding(summary),
         _section_power_topology(summary),
         _section_functional_blocks(summary),
+        _section_connectivity_graph(summary),
         _section_probe_inventory(summary),
     ]
     return "\n\n".join(sections)
+
+
+def _section_connectivity_graph(summary: SchematicSummary) -> str:
+    body = render_mermaid(summary)
+    return "\n".join([
+        "## Connectivity Graph",
+        "",
+        "```mermaid",
+        body,
+        "```",
+    ])
 
 
 def _section_understanding(summary: SchematicSummary) -> str:
