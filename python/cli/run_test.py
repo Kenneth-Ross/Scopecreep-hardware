@@ -22,7 +22,8 @@ def _print_plan(plan: TestPlan) -> None:
         print(f"{tc.id}  {tc.title}")
         print(f"  PSU:   {tc.psu.voltage}V @ {tc.psu.current_limit}A on {tc.psu.rail_name}")
         print(f"  Probe: {tc.probe.scope_channel} on {tc.probe.label} ({tc.probe.location_hint})")
-        print(f"  Expect: kind={tc.expected.kind} nominal={tc.expected.nominal} tol={tc.expected.tolerance}")
+        from planner.models import expected_range_to_legacy
+        print(f"  Expect: {expected_range_to_legacy(tc.expected)}  ({tc.measurement})")
         print(f"  Why:    {tc.rationale}")
         print()
 
@@ -62,6 +63,14 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     _print_plan(plan)
+
+    try:
+        from _openai_usage import session_totals
+        t = session_totals()
+        print(f"[usage] session total: {t['calls']} call(s), "
+              f"{t['total_tokens']} tokens, ~${t['est_cost_usd']}")
+    except Exception:
+        pass
 
     if not args.yes:
         if not confirm("Approve and run?"):

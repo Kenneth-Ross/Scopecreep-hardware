@@ -52,6 +52,11 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
                 tools=OPENAI_TOOL_SCHEMAS,
                 messages=messages,
             )
+            try:
+                from _openai_usage import log_usage
+                log_usage(resp, label="agent.runner")
+            except Exception:
+                pass
             choice = resp.choices[0]
             msg = choice.message
             tool_calls = msg.tool_calls or []
