@@ -134,6 +134,30 @@ def _xy(rec: dict, prefix: str = "Location") -> tuple[int, int] | None:
         return None
 
 
+_SNAP_GRID = 5  # mils — Altium default placement grid
+
+
+def _snap(pt: tuple[int, int]) -> tuple[int, int]:
+    g = _SNAP_GRID
+    return (round(pt[0] / g) * g, round(pt[1] / g) * g)
+
+
+# Rotation encoded in bits 0-1 of PinConglomerate → unit vector toward electrical endpoint
+_PIN_DIR: dict[int, tuple[int, int]] = {0: (1, 0), 1: (0, 1), 2: (-1, 0), 3: (0, -1)}
+
+
+def _pin_endpoint(rec: dict) -> tuple[int, int] | None:
+    """Return the electrical (net-side) endpoint of a RECORD=2 pin."""
+    try:
+        x, y = int(rec["Location.X"]), int(rec["Location.Y"])
+        length = int(rec.get("PinLength", 30))
+        rot = int(rec.get("PinConglomerate", 0)) & 0x03
+        dx, dy = _PIN_DIR[rot]
+        return _snap((x + dx * length, y + dy * length))
+    except (KeyError, ValueError):
+        return None
+
+
 def resolve_nets(
     records: list[dict], components: list[Component]
 ) -> dict[str, list[PinRef]]:
@@ -155,7 +179,7 @@ def resolve_nets(
         pts = []
         for i in range(1, n + 1):
             try:
-                pt = (int(rec[f"X{i}"]), int(rec[f"Y{i}"]))
+                pt = _snap((int(rec[f"X{i}"]), int(rec[f"Y{i}"])))
                 pts.append(pt)
                 uf.find(pt)  # register
             except (KeyError, ValueError):
@@ -169,6 +193,7 @@ def resolve_nets(
             continue
         pt = _xy(rec)
         if pt and rec.get("Text"):
+            pt = _snap(pt)
             uf.find(pt)
             coord_name[pt] = rec["Text"]
 
@@ -178,6 +203,7 @@ def resolve_nets(
             continue
         pt = _xy(rec)
         if pt and rec.get("Text"):
+            pt = _snap(pt)
             uf.find(pt)
             coord_name[pt] = rec["Text"]
 
@@ -186,7 +212,7 @@ def resolve_nets(
         if rec.get("RECORD") == "29":
             pt = _xy(rec)
             if pt:
-                uf.find(pt)
+                uf.find(_snap(pt))
 
     # Build index: _stream_pos of RECORD=1 → Component.
     # Only include positions that produced a component (have a non-empty Designator child),
@@ -225,7 +251,7 @@ def resolve_nets(
         if id(comp) not in seen_comps:
             comp.pins = []
             seen_comps.add(id(comp))
-        pt = _xy(prec)
+        pt = _pin_endpoint(prec)
         if pt:
             uf.find(pt)
 
@@ -241,7 +267,7 @@ def resolve_nets(
     nets: dict[str, list[PinRef]] = {}
 
     for comp, prec in pin_records:
-        pt = _xy(prec)
+        pt = _pin_endpoint(prec)
         if not pt:
             continue
         root = uf.find(pt)

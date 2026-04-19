@@ -160,7 +160,7 @@ def test_resolve_nets_simple_wire():
         "|RECORD=1|ComponentDescription=IC|Location.X=220|Location.Y=100|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
         "|RECORD=41|OwnerIndex=0|Name=Comment|Text=IC|",
-        "|RECORD=2|OwnerIndex=0|Name=VIN|Designator=1|Electrical=0|Location.X=200|Location.Y=100|",
+        "|RECORD=2|OwnerIndex=0|Name=VIN|Designator=1|Electrical=0|Location.X=200|Location.Y=100|PinLength=0|PinConglomerate=0|",
         # Wire: (100,100)-(200,100)
         "|RECORD=27|LocationCount=2|X1=100|Y1=100|X2=200|Y2=100|",
         # Net label at (100,100)
@@ -180,7 +180,7 @@ def test_resolve_nets_power_port():
         "|RECORD=1|ComponentDescription=IC|Location.X=120|Location.Y=100|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=U1|",
         "|RECORD=41|OwnerIndex=0|Name=Comment|Text=IC|",
-        "|RECORD=2|OwnerIndex=0|Name=GND|Designator=2|Electrical=7|Location.X=100|Location.Y=100|",
+        "|RECORD=2|OwnerIndex=0|Name=GND|Designator=2|Electrical=7|Location.X=100|Location.Y=100|PinLength=0|PinConglomerate=0|",
         "|RECORD=17|Text=GND|Location.X=100|Location.Y=100|",
     )
     records = parse_stream(data)
@@ -199,11 +199,11 @@ def test_resolve_nets_unnamed_cluster():
         "|RECORD=1|ComponentDescription=R|Location.X=120|Location.Y=100|",
         "|RECORD=34|OwnerIndex=0|Name=Designator|Text=R1|",
         "|RECORD=41|OwnerIndex=0|Name=Comment|Text=10k|",
-        "|RECORD=2|OwnerIndex=0|Name=1|Designator=1|Electrical=4|Location.X=100|Location.Y=100|",
+        "|RECORD=2|OwnerIndex=0|Name=1|Designator=1|Electrical=4|Location.X=100|Location.Y=100|PinLength=0|PinConglomerate=0|",
         "|RECORD=1|ComponentDescription=R|Location.X=220|Location.Y=100|",
         "|RECORD=34|OwnerIndex=4|Name=Designator|Text=R2|",
         "|RECORD=41|OwnerIndex=4|Name=Comment|Text=10k|",
-        "|RECORD=2|OwnerIndex=4|Name=1|Designator=1|Electrical=4|Location.X=200|Location.Y=100|",
+        "|RECORD=2|OwnerIndex=4|Name=1|Designator=1|Electrical=4|Location.X=200|Location.Y=100|PinLength=0|PinConglomerate=0|",
         "|RECORD=27|LocationCount=2|X1=100|Y1=100|X2=200|Y2=100|",
     )
     records = parse_stream(data)
