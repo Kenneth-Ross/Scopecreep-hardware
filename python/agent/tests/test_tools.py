@@ -190,3 +190,17 @@ async def test_dispatch_unknown_tool():
     hw = _make_hw()
     result = await dispatch_tool("nonexistent_tool", {}, session, hw)
     assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_dispatch_psu_safety_violation_fails_session():
+    from agent.tools import dispatch_tool
+    from agent.models import SessionState
+    session = _make_session()
+    hw = _make_hw()
+    result = await dispatch_tool(
+        "psu_configure", {"channel": 0, "voltage": 99.0, "enabled": True}, session, hw
+    )
+    assert "error" in result
+    assert session.state == SessionState.FAILED
+    assert session.error is not None

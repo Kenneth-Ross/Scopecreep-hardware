@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 
 from .models import HardwareContext, SessionState, TestSession
 from .runner import run_session
-from .config import SCOPE_BITSTREAM, SCOPE_URL
+from .config import SCOPE_BITSTREAM, SCOPE_URL, SESSION_TTL_SECONDS
 from drivers.analog_discovery.driver import AnalogDiscovery
 
 router = APIRouter(prefix="/agent")
@@ -56,7 +57,7 @@ def get_session(session_id: str):
     if session.state == SessionState.PROBE_REQUIRED and session.current_probe:
         p = session.current_probe
         resp["current_probe"] = {
-            "probe_point_label": p.probe_point_label,
+            "label": p.probe_point_label,
             "net": p.net,
             "location_hint": p.location_hint,
             "probe_type": p.probe_type,
@@ -76,7 +77,7 @@ def resume_session(session_id: str):
             detail=f"Session is not awaiting a probe (current state: {session.state.value})",
         )
     session._resume_event.set()
-    return {"status": "resuming"}
+    return {"status": "capturing"}
 
 
 @router.get("/sessions/{session_id}/report")
@@ -125,4 +126,7 @@ def _require_session(session_id: str) -> TestSession:
     s = _sessions.get(session_id)
     if s is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    if time.time() - s.created_at > SESSION_TTL_SECONDS:
+        del _sessions[session_id]
+        raise HTTPException(status_code=404, detail="Session expired")
     return s

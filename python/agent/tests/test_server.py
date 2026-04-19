@@ -79,7 +79,7 @@ def test_resume_probe_required_state(client):
 
     r2 = client.post(f"/agent/sessions/{sid}/resume")
     assert r2.status_code == 200
-    assert r2.json()["status"] == "resuming"
+    assert r2.json()["status"] == "capturing"
 
 
 def test_get_report_not_complete_returns_202(client):

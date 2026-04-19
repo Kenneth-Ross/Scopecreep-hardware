@@ -54,9 +54,10 @@ async def test_run_session_end_turn_immediately():
     session = _make_session()
     hw = _make_hw()
 
-    with patch("agent.runner.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
-        mock_client.messages.create.return_value = _make_end_turn_response()
+    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=_make_end_turn_response())
 
         await run_session(session, hw)
 
@@ -80,9 +81,10 @@ async def test_run_session_records_result_via_tool():
 
     responses = [record_call, end_call]
 
-    with patch("agent.runner.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
-        mock_client.messages.create.side_effect = responses
+    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(side_effect=responses)
 
         await run_session(session, hw)
 
@@ -103,9 +105,10 @@ async def test_run_session_exceeds_max_rounds():
         "channel": 0, "voltage": 3.3, "enabled": True,
     })
 
-    with patch("agent.runner.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
-        mock_client.messages.create.return_value = psu_call
+    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=psu_call)
 
         original = cfg.AGENT_MAX_TOOL_ROUNDS
         cfg.AGENT_MAX_TOOL_ROUNDS = 3
@@ -134,9 +137,10 @@ async def test_run_session_probe_pause_resume():
     }, tool_id="tu_probe")
     end_call = _make_end_turn_response()
 
-    with patch("agent.runner.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
-        mock_client.messages.create.side_effect = [probe_call, end_call]
+    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(side_effect=[probe_call, end_call])
 
         task = asyncio.create_task(run_session(session, hw))
         await asyncio.sleep(0.05)  # let agent reach probe_required
@@ -156,9 +160,10 @@ async def test_run_session_hardware_error_fails_session():
     session = _make_session()
     hw = _make_hw()
 
-    with patch("agent.runner.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
-        mock_client.messages.create.side_effect = RuntimeError("API timeout")
+    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(side_effect=RuntimeError("API timeout"))
 
         await run_session(session, hw)
 

@@ -1,6 +1,6 @@
 import pytest
 from agent.evaluator import parse_expected_range, evaluate_tier1
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 
 # --- parse_expected_range ---
@@ -139,11 +139,12 @@ def test_tier1_raises_on_none_v_mean():
 @pytest.mark.asyncio
 async def test_evaluate_tier2_returns_pass():
     from agent.evaluator import evaluate_tier2
-    with patch("agent.evaluator.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
+    with patch("agent.evaluator.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
         resp = MagicMock()
         resp.content = [MagicMock(text='{"verdict": "PASS", "reasoning": "Acceptable ripple."}')]
-        mock_client.messages.create.return_value = resp
+        mock_client.messages.create = AsyncMock(return_value=resp)
 
         verdict, reasoning = await evaluate_tier2(
             measurements={"v_mean": 3.20, "v_pp": 0.12},
@@ -158,11 +159,12 @@ async def test_evaluate_tier2_returns_pass():
 @pytest.mark.asyncio
 async def test_evaluate_tier2_returns_fail():
     from agent.evaluator import evaluate_tier2
-    with patch("agent.evaluator.anthropic.Anthropic") as mock_cls:
-        mock_client = mock_cls.return_value
+    with patch("agent.evaluator.anthropic.AsyncAnthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
         resp = MagicMock()
         resp.content = [MagicMock(text='{"verdict": "FAIL", "reasoning": "Voltage sag indicates overload."}')]
-        mock_client.messages.create.return_value = resp
+        mock_client.messages.create = AsyncMock(return_value=resp)
 
         verdict, reasoning = await evaluate_tier2(
             measurements={"v_mean": 3.10, "v_pp": 0.30},

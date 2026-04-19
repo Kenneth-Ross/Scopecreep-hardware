@@ -1,6 +1,7 @@
 # python/agent/tools.py
 from __future__ import annotations
 
+import logging
 from typing import Any
 import numpy as np
 
@@ -174,7 +175,8 @@ async def handle_record_result(inputs: dict[str, Any], session: TestSession) -> 
                 measurements, expected_range, pp, board_understanding
             )
             tier = 2
-        except Exception:
+        except Exception as exc:
+            logging.warning("evaluate_tier2 failed, keeping MARGINAL: %s", exc)
             verdict = "MARGINAL"
 
     session.results.append(TestResult(
@@ -196,7 +198,11 @@ async def dispatch_tool(
     hw: HardwareContext,
 ) -> dict:
     if name == "psu_configure":
-        return handle_psu_configure(inputs, hw)
+        result = handle_psu_configure(inputs, hw)
+        if "error" in result:
+            session.state = SessionState.FAILED
+            session.error = result["error"]
+        return result
     if name == "scope_capture":
         session.state = SessionState.CAPTURING
         return handle_scope_capture(inputs, hw)

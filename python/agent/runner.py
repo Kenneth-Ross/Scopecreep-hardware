@@ -35,7 +35,7 @@ def build_system_prompt(schematic: dict[str, Any]) -> str:
 
 async def run_session(session: TestSession, hw: HardwareContext) -> None:
     """Drive the Claude tool-use loop for one test session."""
-    client = anthropic.Anthropic()
+    client = anthropic.AsyncAnthropic()
     system = build_system_prompt(session.schematic)
     messages: list[dict] = [
         {"role": "user", "content": "Please begin testing the board. Work through all probe points."}
@@ -46,7 +46,7 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
             if session.state in (SessionState.COMPLETE, SessionState.FAILED):
                 break
 
-            response = client.messages.create(
+            response = await client.messages.create(
                 model=AGENT_MODEL,
                 max_tokens=AGENT_MAX_TOKENS,
                 system=system,
@@ -80,6 +80,9 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
                 if session.state == SessionState.PROBE_REQUIRED:
                     await session._resume_event.wait()
                     session._resume_event.clear()
+                    if session.state != SessionState.PROBE_REQUIRED:
+                        # Session was cancelled while waiting — exit without overwriting FAILED
+                        return
                     session.state = SessionState.CAPTURING
 
             messages.append({"role": "user", "content": tool_results})
@@ -91,3 +94,8 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
     except Exception as exc:
         session.state = SessionState.FAILED
         session.error = str(exc)
+    finally:
+        try:
+            hw.analog_discovery.disconnect()
+        except Exception:
+            pass

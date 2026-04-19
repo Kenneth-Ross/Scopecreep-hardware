@@ -117,8 +117,8 @@ async def evaluate_tier2(
         f"Board context: {board_understanding}\n\n"
         'Respond with exactly: {"verdict": "PASS" or "FAIL", "reasoning": "one sentence"}'
     )
-    client = anthropic.Anthropic()
-    response = client.messages.create(
+    client = anthropic.AsyncAnthropic()
+    response = await client.messages.create(
         model=config.AGENT_MODEL,
         max_tokens=256,
         messages=[{"role": "user", "content": prompt}],
