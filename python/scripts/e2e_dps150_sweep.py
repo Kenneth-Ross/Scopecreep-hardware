@@ -36,6 +36,7 @@ Run:
 from __future__ import annotations
 
 import glob
+import importlib.util
 import os
 import sys
 import time
@@ -43,15 +44,45 @@ from pathlib import Path
 
 import numpy as np
 
-# Repo layout: scripts/ is under python/, DPS-150 driver is under backend/.
-# Add both to sys.path so this script runs from anywhere without an install.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-for p in (_REPO_ROOT / "python", _REPO_ROOT / "backend"):
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+
+# Make the python/ package tree importable for the WaveForms adapter.
+_PY_ROOT = _REPO_ROOT / "python"
+if str(_PY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PY_ROOT))
 
 from drivers.analog_discovery.waveforms_driver import WaveFormsAnalogDiscovery
-from drivers.dps150 import DPS150  # noqa: E402  (from backend/)
+
+
+def _load_dps150_class():
+    """Load backend/drivers/dps150.py without clashing with python/drivers/."""
+    dps_path = _REPO_ROOT / "backend" / "drivers" / "dps150.py"
+    base_path = _REPO_ROOT / "backend" / "drivers" / "base.py"
+    if not dps_path.exists():
+        raise RuntimeError(f"DPS-150 driver not found at {dps_path}")
+
+    # Load backend.drivers.base first so dps150's "from .base import ..." resolves.
+    base_spec = importlib.util.spec_from_file_location(
+        "_backend_drivers_base", base_path
+    )
+    base_mod = importlib.util.module_from_spec(base_spec)
+    sys.modules["_backend_drivers_base"] = base_mod
+    base_spec.loader.exec_module(base_mod)
+
+    # Patch the relative import inside dps150.py by injecting the base module
+    # under a package name we control, then loading the file as a module.
+    source = dps_path.read_text().replace(
+        "from .base import InstrumentDriver",
+        "from _backend_drivers_base import InstrumentDriver",
+    )
+    dps_mod = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader("_backend_dps150", loader=None)
+    )
+    exec(compile(source, str(dps_path), "exec"), dps_mod.__dict__)
+    return dps_mod.DPS150
+
+
+DPS150 = _load_dps150_class()
 
 
 CH = int(os.getenv("SCOPE_CH", "1"))
