@@ -48,6 +48,12 @@ async def evaluate_tier2(
     except OpenAIError as exc:
         raise Tier2Error(str(exc)) from exc
 
+    try:
+        from _openai_usage import log_usage
+        log_usage(resp, label="evaluator.tier2")
+    except Exception:
+        pass
+
     raw = resp.choices[0].message.content
     if not raw:
         raise Tier2Error("empty response")

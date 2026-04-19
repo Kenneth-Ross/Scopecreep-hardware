@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class PsuSetting(BaseModel):
@@ -30,6 +30,28 @@ class ExpectedRange(BaseModel):
     tolerance: float | None = None
     lower: float | None = None
     upper: float | None = None
+
+    @model_validator(mode="after")
+    def _fields_match_kind(self) -> "ExpectedRange":
+        if self.kind in ("pct", "abs_mv"):
+            if self.nominal is None or self.tolerance is None:
+                raise ValueError(
+                    f"kind={self.kind!r} requires both `nominal` and `tolerance` "
+                    f"(got nominal={self.nominal}, tolerance={self.tolerance})"
+                )
+        elif self.kind == "gt":
+            if self.lower is None:
+                raise ValueError("kind='gt' requires `lower`")
+        elif self.kind == "lt":
+            if self.upper is None:
+                raise ValueError("kind='lt' requires `upper`")
+        elif self.kind == "range":
+            if self.lower is None or self.upper is None:
+                raise ValueError(
+                    f"kind='range' requires both `lower` and `upper` "
+                    f"(got lower={self.lower}, upper={self.upper})"
+                )
+        return self
 
 
 class TestCase(BaseModel):

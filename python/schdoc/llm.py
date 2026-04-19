@@ -89,6 +89,11 @@ def generate_understanding(summary: SchematicSummary) -> str:
             ],
             max_tokens=512,
         )
+        try:
+            from _openai_usage import log_usage
+            log_usage(resp, label="schdoc.understanding")
+        except Exception:
+            pass
         content = resp.choices[0].message.content
         return content or _fallback_understanding(summary)
     except OpenAIError:

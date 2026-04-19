@@ -17,11 +17,19 @@ SYSTEM_PROMPT = (
     "current limit justified by the schematic's nominal rails; never exceed "
     "{max_voltage} volts on any channel; specify a physical probe location a "
     "human can find (reference designator + pin or pad, plus a nearby "
-    "landmark); give an expected range grounded in the schematic "
-    "(nominal \u00b1 tolerance). Prefer probe points the parser already "
-    "extracted; you MAY add rail-level tests (ripple, load-step) only if the "
-    "schematic supports it. Be concrete. Do not invent components not in the "
-    "summary."
+    "landmark); give an expected range grounded in the schematic. "
+    "Prefer probe points the parser already extracted; you MAY add rail-level "
+    "tests (ripple, load-step) only if the schematic supports it. Be concrete. "
+    "Do not invent components not in the summary.\n\n"
+    "ExpectedRange.kind field rules — match these EXACTLY:\n"
+    "  kind='pct'     → set `nominal` AND `tolerance` (tolerance is percent, e.g. 5.0 for ±5%). "
+    "Leave `lower` and `upper` null.\n"
+    "  kind='abs_mv'  → set `nominal` AND `tolerance` (tolerance is millivolts, e.g. 165 for ±165mV). "
+    "Leave `lower` and `upper` null.\n"
+    "  kind='gt'      → set `lower` only (measurement must be > lower). Leave all others null.\n"
+    "  kind='lt'      → set `upper` only (measurement must be < upper). Leave all others null.\n"
+    "  kind='range'   → set `lower` AND `upper` (absolute volt bounds). Leave `nominal` and `tolerance` null.\n"
+    "Never emit a test case that violates these rules — the plan will be rejected."
 )
 
 
@@ -125,6 +133,12 @@ def generate_plan(summary: Any) -> TestPlan:
         )
     except OpenAIError as exc:
         raise PlannerError(f"OpenAI API error: {exc}") from exc
+
+    try:
+        from _openai_usage import log_usage
+        log_usage(resp, label="planner")
+    except Exception:
+        pass
 
     raw = resp.choices[0].message.content
     if not raw:
