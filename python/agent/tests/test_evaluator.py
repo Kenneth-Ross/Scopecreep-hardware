@@ -1,6 +1,6 @@
 import pytest
 from agent.evaluator import parse_expected_range, evaluate_tier1
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 
 # --- parse_expected_range ---
@@ -136,17 +136,22 @@ def test_tier1_raises_on_none_v_mean():
 
 # --- evaluate_tier2 ---
 
-def _mock_proc(json_response: str):
-    proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(json_response.encode(), b""))
-    return proc
+def _mock_openai_resp(json_response: str):
+    from unittest.mock import MagicMock
+    msg = MagicMock(); msg.content = json_response
+    choice = MagicMock(); choice.message = msg
+    r = MagicMock(); r.choices = [choice]
+    return r
 
 
-@pytest.mark.skip(reason="tier2 reworked in task 9")
 @pytest.mark.asyncio
-async def test_evaluate_tier2_returns_pass():
+async def test_evaluate_tier2_returns_pass(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     from agent.evaluator import evaluate_tier2
-    with patch("asyncio.create_subprocess_exec", return_value=_mock_proc('{"verdict": "PASS", "reasoning": "Acceptable ripple."}')):
+    with patch("evaluator.tier2.OpenAI") as m:
+        m.return_value.chat.completions.create.return_value = _mock_openai_resp(
+            '{"verdict": "PASS", "reasoning": "Acceptable ripple."}'
+        )
         verdict, reasoning = await evaluate_tier2(
             measurements={"v_mean": 3.20, "v_pp": 0.12},
             expected_range="3.3V ± 5%",
@@ -157,11 +162,14 @@ async def test_evaluate_tier2_returns_pass():
     assert "ripple" in reasoning.lower()
 
 
-@pytest.mark.skip(reason="tier2 reworked in task 9")
 @pytest.mark.asyncio
-async def test_evaluate_tier2_returns_fail():
+async def test_evaluate_tier2_returns_fail(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     from agent.evaluator import evaluate_tier2
-    with patch("asyncio.create_subprocess_exec", return_value=_mock_proc('{"verdict": "FAIL", "reasoning": "Voltage sag indicates overload."}')):
+    with patch("evaluator.tier2.OpenAI") as m:
+        m.return_value.chat.completions.create.return_value = _mock_openai_resp(
+            '{"verdict": "FAIL", "reasoning": "Voltage sag indicates overload."}'
+        )
         verdict, reasoning = await evaluate_tier2(
             measurements={"v_mean": 3.10, "v_pp": 0.30},
             expected_range="3.3V ± 5%",
