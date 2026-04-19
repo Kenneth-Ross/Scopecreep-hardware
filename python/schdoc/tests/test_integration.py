@@ -45,3 +45,42 @@ def test_parse_main_schdoc_j1_connector_pins():
     pin_nets = {p.net for p in j1.pins}
     # J1 should have at least GND and a power/signal net
     assert len(pin_nets) > 1
+
+
+import subprocess
+import sys
+
+
+@pytest.mark.skipif(not SCHDOC.exists(), reason="Main.SchDoc not present")
+def test_cli_writes_markdown(tmp_path):
+    out = tmp_path / "output.md"
+    result = subprocess.run(
+        [sys.executable, "-m", "schdoc.cli", str(SCHDOC), "--output", str(out)],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert out.exists()
+    content = out.read_text()
+    assert "## Board Understanding" in content
+    assert "## Power Topology" in content
+    assert "## Functional Blocks" in content
+    assert "## Probe Inventory" in content
+    assert "3V3" in content or "GND" in content
+
+
+@pytest.mark.skipif(not SCHDOC.exists(), reason="Main.SchDoc not present")
+def test_cli_default_output_path(tmp_path):
+    import shutil
+    schdoc_copy = tmp_path / "Main.SchDoc"
+    shutil.copy(SCHDOC, schdoc_copy)
+    result = subprocess.run(
+        [sys.executable, "-m", "schdoc.cli", str(schdoc_copy)],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    default_out = tmp_path / "Main.schematic_summary.md"
+    assert default_out.exists()
