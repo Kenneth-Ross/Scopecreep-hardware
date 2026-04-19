@@ -123,21 +123,36 @@ def _autodetect_port() -> str:
 
 
 def _try_read_voltage(psu) -> float:
-    """Return PSU voltage readback, or NaN if the serial response is garbled."""
+    """Return PSU voltage readback, or NaN if the serial response is garbled.
+
+    Flush the RX buffer first so a stale byte from a previous write doesn't
+    misalign the frame parser.
+    """
     try:
+        ser = psu._ser
+        if ser is not None:
+            ser.reset_input_buffer()
         return float(psu.get_measurements().get("voltage", float("nan")))
     except Exception:
         return float("nan")
 
 
-def _set_and_settle(psu, target: float) -> float:
-    """Set PSU voltage and poll get_measurements until it converges.
+def _set_and_settle(psu, target: float) -> tuple[float, str]:
+    """Set PSU voltage and (try to) confirm via readback before returning.
 
-    Retries the set_voltage packet if the readback never reaches the target
-    within PSU_POLL_TIMEOUT_S. Returns the last valid readback (or NaN if
-    every poll failed).
+    Strategy:
+      1. Send set_voltage(target).
+      2. Poll get_measurements(); if we get a valid readback that matches
+         target within PSU_READBACK_TOL_V, return.
+      3. If the readback deadline expires, retry up to PSU_SET_RETRIES.
+      4. If every single poll across all retries NaNs (serial comms broken),
+         fall back to a fixed time-based settle and return NaN. The scope
+         capture that follows becomes the source of truth.
+
+    Returns (last_readback_or_nan, note_string).
     """
     last_good = float("nan")
+    saw_any_valid = False
     for attempt in range(1, PSU_SET_RETRIES + 1):
         psu.set_voltage(target)
         deadline = time.monotonic() + PSU_POLL_TIMEOUT_S
@@ -145,13 +160,21 @@ def _set_and_settle(psu, target: float) -> float:
             time.sleep(0.15)
             v = _try_read_voltage(psu)
             if not np.isnan(v):
+                saw_any_valid = True
                 last_good = v
                 if abs(v - target) <= PSU_READBACK_TOL_V:
-                    # Also wait for the scope's settle interval before returning.
                     time.sleep(SETTLE_S)
-                    return v
-        # Didn't converge within timeout; try another set_voltage packet.
-    return last_good
+                    return v, f"converged (attempt {attempt})"
+        # Deadline elapsed without convergence; loop retries set_voltage.
+
+    if not saw_any_valid:
+        # Serial readback is completely broken. Trust set_voltage and use
+        # a time-based settle; the scope will tell us if the rail is wrong.
+        time.sleep(max(SETTLE_S, 2.0))
+        return float("nan"), "readback broken (time-settle fallback)"
+
+    time.sleep(SETTLE_S)
+    return last_good, f"did not converge (last readback {last_good:+.3f})"
 
 
 def _capture_mean(scope, channel: int) -> tuple[float, float]:
@@ -211,13 +234,13 @@ def main() -> None:
         print("-" * len(header))
 
         for target in voltages:
-            psu_meas = _set_and_settle(psu, target)
+            psu_meas, note = _set_and_settle(psu, target)
             scope_meas, pp = _capture_mean(scope_dev.scope, CH)
             err = scope_meas - target
             ok = abs(err) <= TOLERANCE_V
             verdict = "PASS" if ok else "FAIL"
             print(f"{target:>10.3f} {psu_meas:>+10.4f} {scope_meas:>+10.4f} "
-                  f"{err:>+9.4f} {pp:>8.4f}  {verdict}")
+                  f"{err:>+9.4f} {pp:>8.4f}  {verdict}  [{note}]")
             if not ok:
                 fails.append(
                     f"setpoint={target}  psu_readback={psu_meas:+.4f}  "
