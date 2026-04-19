@@ -1,16 +1,15 @@
 # python/agent/runner.py
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
-import anthropic
+from openai import AsyncOpenAI, OpenAIError
 
 from . import config
-from .config import AGENT_MODEL, AGENT_MAX_TOKENS
+from .config import OPENAI_MODEL, AGENT_MAX_TOKENS
 from .models import HardwareContext, SessionState, TestSession
-from .tools import TOOL_SCHEMAS, dispatch_tool
+from .tools import OPENAI_TOOL_SCHEMAS, dispatch_tool
 
 
 def build_system_prompt(schematic: dict[str, Any]) -> str:
@@ -34,11 +33,12 @@ def build_system_prompt(schematic: dict[str, Any]) -> str:
 
 
 async def run_session(session: TestSession, hw: HardwareContext) -> None:
-    """Drive the Claude tool-use loop for one test session."""
-    client = anthropic.AsyncAnthropic()
+    """Drive the OpenAI tool-use loop for one test session."""
+    client = AsyncOpenAI()
     system = build_system_prompt(session.schematic)
     messages: list[dict] = [
-        {"role": "user", "content": "Please begin testing the board. Work through all probe points."}
+        {"role": "system", "content": system},
+        {"role": "user", "content": "Please begin testing the board. Work through all probe points."},
     ]
 
     try:
@@ -46,34 +46,48 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
             if session.state in (SessionState.COMPLETE, SessionState.FAILED):
                 break
 
-            response = await client.messages.create(
-                model=AGENT_MODEL,
+            resp = await client.chat.completions.create(
+                model=OPENAI_MODEL,
                 max_tokens=AGENT_MAX_TOKENS,
-                system=system,
-                tools=TOOL_SCHEMAS,
+                tools=OPENAI_TOOL_SCHEMAS,
                 messages=messages,
             )
+            choice = resp.choices[0]
+            msg = choice.message
+            tool_calls = msg.tool_calls or []
 
-            messages.append({"role": "assistant", "content": response.content})
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": msg.content or ""}
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ]
+            messages.append(assistant_msg)
 
-            if response.stop_reason == "end_turn":
+            if choice.finish_reason == "stop" and not tool_calls:
                 session.state = SessionState.COMPLETE
                 break
 
-            if response.stop_reason != "tool_use":
+            if not tool_calls:
                 session.state = SessionState.FAILED
-                session.error = f"Unexpected stop_reason: {response.stop_reason}"
+                session.error = f"Unexpected finish_reason: {choice.finish_reason}"
                 break
 
-            tool_results: list[dict] = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
+            for tc in tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError as exc:
+                    result = {"error": f"bad tool arguments: {exc}"}
+                else:
+                    result = await dispatch_tool(tc.function.name, args, session, hw)
 
-                result = await dispatch_tool(block.name, block.input, session, hw)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
                     "content": json.dumps(result),
                 })
 
@@ -81,16 +95,15 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
                     await session._resume_event.wait()
                     session._resume_event.clear()
                     if session.state != SessionState.PROBE_REQUIRED:
-                        # Session was cancelled while waiting — exit without overwriting FAILED
                         return
                     session.state = SessionState.CAPTURING
-
-            messages.append({"role": "user", "content": tool_results})
-
         else:
             session.state = SessionState.FAILED
             session.error = f"Agent exceeded {config.AGENT_MAX_TOOL_ROUNDS} tool rounds"
 
+    except OpenAIError as exc:
+        session.state = SessionState.FAILED
+        session.error = f"OpenAI error: {exc}"
     except Exception as exc:
         session.state = SessionState.FAILED
         session.error = str(exc)

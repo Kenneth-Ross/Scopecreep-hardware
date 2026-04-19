@@ -6,6 +6,55 @@ from unittest.mock import MagicMock, patch, AsyncMock
 from agent.models import TestSession, SessionState, HardwareContext
 
 
+# ---------------------------------------------------------------------------
+# OpenAI response shape helpers
+# ---------------------------------------------------------------------------
+
+def _openai_tool_call_response(name: str, args: dict, call_id: str = "call_1"):
+    tc = MagicMock()
+    tc.id = call_id
+    tc.function.name = name
+    tc.function.arguments = json.dumps(args)
+    msg = MagicMock()
+    msg.content = None
+    msg.tool_calls = [tc]
+    choice = MagicMock()
+    choice.message = msg
+    choice.finish_reason = "tool_calls"
+    resp = MagicMock()
+    resp.choices = [choice]
+    return resp
+
+
+def _openai_final_response(text: str = "done"):
+    msg = MagicMock()
+    msg.content = text
+    msg.tool_calls = []
+    choice = MagicMock()
+    choice.message = msg
+    choice.finish_reason = "stop"
+    resp = MagicMock()
+    resp.choices = [choice]
+    return resp
+
+
+def _openai_unexpected_finish_response(finish_reason: str = "length"):
+    """Response with no tool_calls and a non-stop finish_reason — triggers FAILED."""
+    msg = MagicMock()
+    msg.content = ""
+    msg.tool_calls = []
+    choice = MagicMock()
+    choice.message = msg
+    choice.finish_reason = finish_reason
+    resp = MagicMock()
+    resp.choices = [choice]
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
 def _make_session():
     return TestSession(schematic={
         "board_name": "TestBoard",
@@ -24,28 +73,9 @@ def _make_hw():
     return HardwareContext(analog_discovery=ad)
 
 
-def _make_end_turn_response():
-    """Anthropic response that ends the loop immediately."""
-    block = MagicMock()
-    block.type = "text"
-    block.text = "All done."
-    resp = MagicMock()
-    resp.stop_reason = "end_turn"
-    resp.content = [block]
-    return resp
-
-
-def _make_tool_use_response(tool_name: str, tool_input: dict, tool_id: str = "tu_001"):
-    block = MagicMock()
-    block.type = "tool_use"
-    block.id = tool_id
-    block.name = tool_name
-    block.input = tool_input
-    resp = MagicMock()
-    resp.stop_reason = "tool_use"
-    resp.content = [block]
-    return resp
-
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_run_session_end_turn_immediately():
@@ -54,11 +84,10 @@ async def test_run_session_end_turn_immediately():
     session = _make_session()
     hw = _make_hw()
 
-    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        mock_client.messages.create = AsyncMock(return_value=_make_end_turn_response())
+    fake = AsyncMock()
+    fake.chat.completions.create = AsyncMock(return_value=_openai_final_response())
 
+    with patch("agent.runner.AsyncOpenAI", return_value=fake):
         await run_session(session, hw)
 
     assert session.state == SessionState.COMPLETE
@@ -71,21 +100,18 @@ async def test_run_session_records_result_via_tool():
     session = _make_session()
     hw = _make_hw()
 
-    record_call = _make_tool_use_response("record_result", {
+    record_call = _openai_tool_call_response("record_result", {
         "probe_point_label": "TP1",
         "verdict": "PASS",
         "reasoning": "OK",
         "measurements": {"v_mean": 3.31, "v_pp": 0.04},
-    }, tool_id="tu_001")
-    end_call = _make_end_turn_response()
+    }, call_id="call_001")
+    end_call = _openai_final_response()
 
-    responses = [record_call, end_call]
+    fake = AsyncMock()
+    fake.chat.completions.create = AsyncMock(side_effect=[record_call, end_call])
 
-    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        mock_client.messages.create = AsyncMock(side_effect=responses)
-
+    with patch("agent.runner.AsyncOpenAI", return_value=fake):
         await run_session(session, hw)
 
     assert session.state == SessionState.COMPLETE
@@ -101,21 +127,20 @@ async def test_run_session_exceeds_max_rounds():
     session = _make_session()
     hw = _make_hw()
 
-    psu_call = _make_tool_use_response("psu_configure", {
+    psu_call = _openai_tool_call_response("psu_configure", {
         "channel": 0, "voltage": 3.3, "enabled": True,
     })
 
-    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        mock_client.messages.create = AsyncMock(return_value=psu_call)
+    fake = AsyncMock()
+    fake.chat.completions.create = AsyncMock(return_value=psu_call)
 
-        original = cfg.AGENT_MAX_TOOL_ROUNDS
-        cfg.AGENT_MAX_TOOL_ROUNDS = 3
-        try:
+    original = cfg.AGENT_MAX_TOOL_ROUNDS
+    cfg.AGENT_MAX_TOOL_ROUNDS = 3
+    try:
+        with patch("agent.runner.AsyncOpenAI", return_value=fake):
             await run_session(session, hw)
-        finally:
-            cfg.AGENT_MAX_TOOL_ROUNDS = original
+    finally:
+        cfg.AGENT_MAX_TOOL_ROUNDS = original
 
     assert session.state == SessionState.FAILED
     assert "exceeded" in (session.error or "")
@@ -128,20 +153,19 @@ async def test_run_session_probe_pause_resume():
     session = _make_session()
     hw = _make_hw()
 
-    probe_call = _make_tool_use_response("require_probe", {
+    probe_call = _openai_tool_call_response("require_probe", {
         "probe_point_label": "TP1",
         "net": "VCC_3V3",
         "location_hint": "Left of C12",
         "probe_type": "power_rail",
         "instructions": "Place CH1 on TP1.",
-    }, tool_id="tu_probe")
-    end_call = _make_end_turn_response()
+    }, call_id="call_probe")
+    end_call = _openai_final_response()
 
-    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        mock_client.messages.create = AsyncMock(side_effect=[probe_call, end_call])
+    fake = AsyncMock()
+    fake.chat.completions.create = AsyncMock(side_effect=[probe_call, end_call])
 
+    with patch("agent.runner.AsyncOpenAI", return_value=fake):
         task = asyncio.create_task(run_session(session, hw))
         await asyncio.sleep(0.05)  # let agent reach probe_required
 
@@ -160,11 +184,10 @@ async def test_run_session_hardware_error_fails_session():
     session = _make_session()
     hw = _make_hw()
 
-    with patch("agent.runner.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        mock_client.messages.create = AsyncMock(side_effect=RuntimeError("API timeout"))
+    fake = AsyncMock()
+    fake.chat.completions.create = AsyncMock(side_effect=RuntimeError("API timeout"))
 
+    with patch("agent.runner.AsyncOpenAI", return_value=fake):
         await run_session(session, hw)
 
     assert session.state == SessionState.FAILED
