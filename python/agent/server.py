@@ -121,6 +121,8 @@ def get_session(session_id: str):
             "probe_type": p.probe_type,
             "instructions": p.instructions,
         }
+    if session.state == SessionState.PLAN_READY and session.proposed_plan:
+        resp["proposed_plan"] = session.proposed_plan
     if session.error:
         resp["error"] = session.error
     return resp
@@ -129,13 +131,17 @@ def get_session(session_id: str):
 @router.post("/sessions/{session_id}/resume")
 def resume_session(session_id: str):
     session = _require_session(session_id)
-    if session.state != SessionState.PROBE_REQUIRED:
+    if session.state not in (SessionState.PROBE_REQUIRED, SessionState.PLAN_READY):
         raise HTTPException(
             status_code=400,
-            detail=f"Session is not awaiting a probe (current state: {session.state.value})",
+            detail=(
+                "Session is not awaiting user input "
+                f"(current state: {session.state.value})"
+            ),
         )
     session._resume_event.set()
-    return {"status": "capturing"}
+    next_state = "planning" if session.state == SessionState.PLAN_READY else "capturing"
+    return {"status": next_state}
 
 
 @router.get("/sessions/{session_id}/report")

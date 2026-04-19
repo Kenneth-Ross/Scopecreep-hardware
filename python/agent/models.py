@@ -10,6 +10,7 @@ from typing import Any
 
 class SessionState(str, Enum):
     PLANNING = "planning"
+    PLAN_READY = "plan_ready"           # plan published, awaiting user approval
     PROBE_REQUIRED = "probe_required"
     CAPTURING = "capturing"
     EVALUATING = "evaluating"
@@ -53,6 +54,8 @@ class TestSession:
     total_probe_points: int = 0
     error: str | None = None
     created_at: float = field(default_factory=time.time)
+    # Proposed test plan produced by publish_test_plan, awaiting user review.
+    proposed_plan: list[dict[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         # Not a dataclass field — excluded from __repr__, asdict(), and equality

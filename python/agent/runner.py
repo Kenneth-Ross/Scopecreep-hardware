@@ -22,13 +22,18 @@ def build_system_prompt(schematic: dict[str, Any]) -> str:
         f"## Probe Points ({len(probe_points)} total)\n"
         f"{json.dumps(probe_points, indent=2)}\n\n"
         "## Rules\n"
-        "1. Always call `require_probe` before `scope_capture` — the user must physically place the probe.\n"
-        "2. Always call `record_result` after evaluating each probe point.\n"
-        "3. Test power rails first (probe_type == 'power_rail'), then signal nets.\n"
-        "4. Use `psu_configure` to power the board before testing if not already powered.\n"
-        "5. Do not invent probe points not listed above.\n"
-        "6. If v_mean is near zero after enabling PSU, the board may be disconnected — record FAIL.\n"
-        "7. Work through all probe points until every one has a recorded result."
+        "1. FIRST STEP (mandatory): call `publish_test_plan` with a 1–2 sentence summary and "
+        "one entry per probe point covering probe_point_label, net, probe_type, description, "
+        "and expected_range. Do NOT call any hardware tool before this.\n"
+        "2. The session will pause on publish_test_plan. When the user approves via /resume, "
+        "continue by calling the hardware tools.\n"
+        "3. Always call `require_probe` before `scope_capture` — the user must physically place the probe.\n"
+        "4. Always call `record_result` after evaluating each probe point.\n"
+        "5. Test power rails first (probe_type == 'power_rail'), then signal nets.\n"
+        "6. Use `psu_configure` to power the board before testing if not already powered.\n"
+        "7. Do not invent probe points not listed above.\n"
+        "8. If v_mean is near zero after enabling PSU, the board may be disconnected — record FAIL.\n"
+        "9. Work through all probe points until every one has a recorded result."
     )
 
 
@@ -96,7 +101,14 @@ async def run_session(session: TestSession, hw: HardwareContext) -> None:
                     "content": json.dumps(result),
                 })
 
-                if session.state == SessionState.PROBE_REQUIRED:
+                if session.state == SessionState.PLAN_READY:
+                    await session._resume_event.wait()
+                    session._resume_event.clear()
+                    # User rejected the plan or cancelled the session.
+                    if session.state not in (SessionState.PLAN_READY, SessionState.PLANNING):
+                        return
+                    session.state = SessionState.PLANNING
+                elif session.state == SessionState.PROBE_REQUIRED:
                     await session._resume_event.wait()
                     session._resume_event.clear()
                     if session.state != SessionState.PROBE_REQUIRED:

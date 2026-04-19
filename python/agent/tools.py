@@ -69,6 +69,46 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "publish_test_plan",
+        "description": (
+            "Publish the overall test plan for user review. Call this FIRST, before any "
+            "hardware tool (psu_configure / scope_capture / require_probe). The session "
+            "pauses on publish; no hardware is touched until the user approves via "
+            "/agent/sessions/{id}/resume. Call this exactly once."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "1–2 sentence summary of the overall test strategy.",
+                },
+                "test_cases": {
+                    "type": "array",
+                    "description": "Ordered list of every test you plan to run.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "probe_point_label": {"type": "string"},
+                            "net": {"type": "string"},
+                            "probe_type": {"type": "string"},
+                            "description": {
+                                "type": "string",
+                                "description": "What you'll measure and why it passes/fails.",
+                            },
+                            "expected_range": {
+                                "type": "string",
+                                "description": "Expected measurement range, e.g. '3.2–3.4 V DC'.",
+                            },
+                        },
+                        "required": ["probe_point_label", "description", "expected_range"],
+                    },
+                },
+            },
+            "required": ["summary", "test_cases"],
+        },
+    },
+    {
         "name": "record_result",
         "description": (
             "Record a verdict for the current probe point after evaluating scope measurements. "
@@ -191,12 +231,29 @@ async def handle_record_result(inputs: dict[str, Any], session: TestSession) -> 
     return {"status": "recorded", "verdict": verdict, "tier": tier}
 
 
+def handle_publish_test_plan(inputs: dict[str, Any], session: TestSession) -> dict:
+    """Store the proposed plan and pause the session awaiting user approval."""
+    summary = inputs.get("summary", "")
+    test_cases = inputs.get("test_cases", []) or []
+    session.proposed_plan = [
+        {"summary": summary, "test_cases": test_cases}
+    ]
+    session.state = SessionState.PLAN_READY
+    return {
+        "status": "published",
+        "waiting_for_user_approval": True,
+        "test_case_count": len(test_cases),
+    }
+
+
 async def dispatch_tool(
     name: str,
     inputs: dict[str, Any],
     session: TestSession,
     hw: HardwareContext,
 ) -> dict:
+    if name == "publish_test_plan":
+        return handle_publish_test_plan(inputs, session)
     if name == "psu_configure":
         result = handle_psu_configure(inputs, hw)
         if "error" in result:
