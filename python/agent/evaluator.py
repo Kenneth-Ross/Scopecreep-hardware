@@ -1,7 +1,10 @@
 from __future__ import annotations
 import re
+import json
+import anthropic
 from dataclasses import dataclass
 from typing import Any
+from . import config
 
 
 @dataclass
@@ -101,5 +104,24 @@ async def evaluate_tier2(
     probe_point: dict[str, Any],
     board_understanding: str,
 ) -> tuple[str, str]:
-    """Placeholder — full implementation added in Task 7."""
-    raise NotImplementedError("evaluate_tier2 not yet implemented")
+    """Call Claude to interpret a marginal measurement.
+
+    Returns (verdict, reasoning) where verdict is 'PASS' or 'FAIL'.
+    Only called when tier-1 returns MARGINAL.
+    """
+    prompt = (
+        "You are evaluating a hardware measurement. Respond with ONLY valid JSON, no markdown.\n\n"
+        f"Probe point: {json.dumps(probe_point)}\n"
+        f"Expected range: {expected_range}\n"
+        f"Measurements: {json.dumps(measurements)}\n"
+        f"Board context: {board_understanding}\n\n"
+        'Respond with exactly: {"verdict": "PASS" or "FAIL", "reasoning": "one sentence"}'
+    )
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model=config.AGENT_MODEL,
+        max_tokens=256,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    result = json.loads(response.content[0].text)
+    return result["verdict"], result["reasoning"]

@@ -1,5 +1,6 @@
 import pytest
 from agent.evaluator import parse_expected_range, evaluate_tier1
+from unittest.mock import patch, MagicMock
 
 
 # --- parse_expected_range ---
@@ -131,3 +132,42 @@ def test_tier1_raises_on_missing_v_mean():
 def test_tier1_raises_on_none_v_mean():
     with pytest.raises(ValueError, match="v_mean"):
         evaluate_tier1({"v_mean": None}, "3.3V ± 5%")
+
+
+# --- evaluate_tier2 ---
+
+@pytest.mark.asyncio
+async def test_evaluate_tier2_returns_pass():
+    from agent.evaluator import evaluate_tier2
+    with patch("agent.evaluator.anthropic.Anthropic") as mock_cls:
+        mock_client = mock_cls.return_value
+        resp = MagicMock()
+        resp.content = [MagicMock(text='{"verdict": "PASS", "reasoning": "Acceptable ripple."}')]
+        mock_client.messages.create.return_value = resp
+
+        verdict, reasoning = await evaluate_tier2(
+            measurements={"v_mean": 3.20, "v_pp": 0.12},
+            expected_range="3.3V ± 5%",
+            probe_point={"label": "TP1", "net": "VCC_3V3"},
+            board_understanding="LDO rail for MCU.",
+        )
+    assert verdict == "PASS"
+    assert "ripple" in reasoning.lower()
+
+
+@pytest.mark.asyncio
+async def test_evaluate_tier2_returns_fail():
+    from agent.evaluator import evaluate_tier2
+    with patch("agent.evaluator.anthropic.Anthropic") as mock_cls:
+        mock_client = mock_cls.return_value
+        resp = MagicMock()
+        resp.content = [MagicMock(text='{"verdict": "FAIL", "reasoning": "Voltage sag indicates overload."}')]
+        mock_client.messages.create.return_value = resp
+
+        verdict, reasoning = await evaluate_tier2(
+            measurements={"v_mean": 3.10, "v_pp": 0.30},
+            expected_range="3.3V ± 5%",
+            probe_point={"label": "TP1", "net": "VCC_3V3"},
+            board_understanding="LDO rail for MCU.",
+        )
+    assert verdict == "FAIL"
