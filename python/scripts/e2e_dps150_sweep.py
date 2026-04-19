@@ -87,7 +87,7 @@ DPS150 = _load_dps150_class()
 
 CH = int(os.getenv("SCOPE_CH", "1"))
 TOLERANCE_V = float(os.getenv("TOLERANCE", "0.15"))
-SETTLE_S = float(os.getenv("SETTLE_S", "0.3"))         # DPS-150 needs time to ramp
+SETTLE_S = float(os.getenv("SETTLE_S", "1.5"))         # DPS-150 needs time to ramp
 CURRENT_LIMIT = float(os.getenv("CURRENT_LIMIT", "0.1"))  # amps; keep low for safety
 SAMPLE_RATE = 1_000_000.0
 N_SAMPLES = 8192
