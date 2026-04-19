@@ -13,18 +13,62 @@ from .runner import run_session
 from .config import SCOPE_BACKEND, SCOPE_BITSTREAM, SCOPE_URL, SESSION_TTL_SECONDS
 
 
+class _LazyDevice:
+    """Defer the real driver's ``connect()`` until first attribute access.
+
+    ``start_session`` should succeed on machines without the Analog Discovery
+    plugged in so the UI (planning, schematic preview, report scaffolding)
+    can be exercised without hardware. The PyDwfError only surfaces when a
+    tool call actually touches psu/scope/dio — at which point the runner's
+    try/except marks the session FAILED with a useful message instead of
+    returning HTTP 500 at the REST layer.
+
+    This is not a mock: the first hardware access still constructs the real
+    driver and calls its real ``connect()``. Only the timing changes.
+    """
+
+    def __init__(self, factory):
+        self._factory = factory
+        self._inner = None
+
+    def _get(self):
+        if self._inner is None:
+            self._inner = self._factory()
+        return self._inner
+
+    def __getattr__(self, name: str):
+        # __getattr__ runs only when normal attribute lookup fails, so
+        # references to _factory / _inner on self don't recurse.
+        return getattr(self._get(), name)
+
+    def disconnect(self) -> None:
+        if self._inner is not None:
+            try:
+                self._inner.disconnect()
+            finally:
+                self._inner = None
+
+
 def _build_device(backend: str, bitstream: str, url: str):
-    """Pick the hardware driver implementation by backend name."""
+    """Pick the hardware driver implementation by backend name.
+
+    Returns a [_LazyDevice] — no USB / FTDI I/O happens until the runner
+    actually touches the device via a tool call.
+    """
     if backend == "waveforms":
-        from drivers.analog_discovery.waveforms_driver import WaveFormsAnalogDiscovery
-        device = WaveFormsAnalogDiscovery()
-        device.connect()
-        return device
+        def factory():
+            from drivers.analog_discovery.waveforms_driver import WaveFormsAnalogDiscovery
+            device = WaveFormsAnalogDiscovery()
+            device.connect()
+            return device
+        return _LazyDevice(factory)
     if backend == "pti":
-        from drivers.analog_discovery.driver import AnalogDiscovery
-        device = AnalogDiscovery(bitstream)
-        device.connect(url=url)
-        return device
+        def factory():
+            from drivers.analog_discovery.driver import AnalogDiscovery
+            device = AnalogDiscovery(bitstream)
+            device.connect(url=url)
+            return device
+        return _LazyDevice(factory)
     raise ValueError(f"Unknown SCOPE_BACKEND {backend!r}. Valid: waveforms, pti")
 
 router = APIRouter(prefix="/agent")
