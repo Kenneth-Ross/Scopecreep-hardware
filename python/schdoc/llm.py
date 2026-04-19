@@ -1,8 +1,10 @@
+# python/schdoc/llm.py
 from __future__ import annotations
+
 import json
 import os
 
-import anthropic
+from openai import OpenAI, OpenAIError
 
 from .models import SchematicSummary
 
@@ -18,7 +20,7 @@ _SYSTEM = (
 
 def _build_context(summary: SchematicSummary) -> str:
     all_components = [c for z in summary.zones for c in z.components] + summary.connectors
-    seen = set()
+    seen: set[str] = set()
     unique_components = []
     for c in all_components:
         if c.designator not in seen:
@@ -32,12 +34,8 @@ def _build_context(summary: SchematicSummary) -> str:
             for c in unique_components
         ],
         "power_rails": [
-            {
-                "name": r.name,
-                "nominal_voltage": r.nominal_voltage,
-                "source": r.source_designator,
-                "loads": r.loads,
-            }
+            {"name": r.name, "nominal_voltage": r.nominal_voltage,
+             "source": r.source_designator, "loads": r.loads}
             for r in summary.power_rails
         ],
         "zones": [
@@ -75,19 +73,23 @@ def _fallback_understanding(summary: SchematicSummary) -> str:
 
 
 def generate_understanding(summary: SchematicSummary) -> str:
-    """Call Anthropic Haiku to generate board understanding prose. Falls back to programmatic summary."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    """Call OpenAI for board overview prose. Fall back to programmatic summary on any failure."""
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         return _fallback_understanding(summary)
 
+    model = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SYSTEM},
+                {"role": "user", "content": _build_context(summary)},
+            ],
             max_tokens=512,
-            system=_SYSTEM,
-            messages=[{"role": "user", "content": _build_context(summary)}],
         )
-        return message.content[0].text
-    except Exception:
+        content = resp.choices[0].message.content
+        return content or _fallback_understanding(summary)
+    except OpenAIError:
         return _fallback_understanding(summary)
