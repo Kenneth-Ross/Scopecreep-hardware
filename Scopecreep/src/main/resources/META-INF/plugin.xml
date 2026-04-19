@@ -1,0 +1,23 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>com.scopecreep</id>
+    <name>Scopecreep</name>
+    <vendor email="sheoranbhavik@gmail.com" url="https://github.com/BhavikFTW/Scopecreep">Scopecreep</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Scopecreep"
+                    anchor="right"
+                    factoryClass="com.scopecreep.ScopecreepToolWindowFactory"/>
+
+        <postStartupActivity implementation="com.scopecreep.sidecar.SidecarActivity"/>
+
+        <applicationService serviceImplementation="com.scopecreep.settings.ScopecreepSettings"/>
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.scopecreep.settings.ScopecreepSettingsConfigurable"
+                id="com.scopecreep.settings.ScopecreepSettingsConfigurable"
+                displayName="Scopecreep"/>
+    </extensions>
+</idea-plugin>
