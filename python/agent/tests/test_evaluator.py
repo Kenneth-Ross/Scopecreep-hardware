@@ -1,6 +1,6 @@
 import pytest
 from agent.evaluator import parse_expected_range, evaluate_tier1
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 
 
 # --- parse_expected_range ---
@@ -136,16 +136,16 @@ def test_tier1_raises_on_none_v_mean():
 
 # --- evaluate_tier2 ---
 
+def _mock_proc(json_response: str):
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(return_value=(json_response.encode(), b""))
+    return proc
+
+
 @pytest.mark.asyncio
 async def test_evaluate_tier2_returns_pass():
     from agent.evaluator import evaluate_tier2
-    with patch("agent.evaluator.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        resp = MagicMock()
-        resp.content = [MagicMock(text='{"verdict": "PASS", "reasoning": "Acceptable ripple."}')]
-        mock_client.messages.create = AsyncMock(return_value=resp)
-
+    with patch("asyncio.create_subprocess_exec", return_value=_mock_proc('{"verdict": "PASS", "reasoning": "Acceptable ripple."}')):
         verdict, reasoning = await evaluate_tier2(
             measurements={"v_mean": 3.20, "v_pp": 0.12},
             expected_range="3.3V ± 5%",
@@ -159,13 +159,7 @@ async def test_evaluate_tier2_returns_pass():
 @pytest.mark.asyncio
 async def test_evaluate_tier2_returns_fail():
     from agent.evaluator import evaluate_tier2
-    with patch("agent.evaluator.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_cls.return_value = mock_client
-        resp = MagicMock()
-        resp.content = [MagicMock(text='{"verdict": "FAIL", "reasoning": "Voltage sag indicates overload."}')]
-        mock_client.messages.create = AsyncMock(return_value=resp)
-
+    with patch("asyncio.create_subprocess_exec", return_value=_mock_proc('{"verdict": "FAIL", "reasoning": "Voltage sag indicates overload."}')):
         verdict, reasoning = await evaluate_tier2(
             measurements={"v_mean": 3.10, "v_pp": 0.30},
             expected_range="3.3V ± 5%",
