@@ -143,6 +143,42 @@ async def schematic_parse(file: UploadFile = File(...)):
         tmp_path.unlink(missing_ok=True)
 
 
+@app.post("/schematic/parse.json")
+async def schematic_parse_json(file: UploadFile = File(...)):
+    """Structured variant of /schematic/parse — returns the JSON dict the
+    agent's `POST /agent/sessions` endpoint expects as the `schematic` body.
+    """
+    if not file.filename or not file.filename.lower().endswith(".schdoc"):
+        raise HTTPException(status_code=400, detail="File must be a .SchDoc file")
+    data = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=".SchDoc", delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = Path(tmp.name)
+    try:
+        summary = parse(tmp_path)
+        summary.understanding = generate_understanding(summary)
+        return {
+            "board_name": summary.board_name,
+            "understanding": summary.understanding,
+            "probe_points": [
+                {
+                    "label": p.label,
+                    "net": p.net,
+                    "expected_range": p.expected_range,
+                    "probe_type": p.probe_type,
+                    "designator": p.designator,
+                    "pin_name": p.pin_name,
+                    "pin_number": p.pin_number,
+                }
+                for p in summary.probe_points
+            ],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Parse error: {exc}") from exc
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # Device lifecycle endpoints
 # ---------------------------------------------------------------------------
