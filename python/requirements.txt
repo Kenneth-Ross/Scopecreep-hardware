@@ -1,5 +1,5 @@
 pyftdi>=0.55.0
-pydwf>=1.4
+pydwf>=1.1
 numpy>=1.26
 fastapi>=0.110
 uvicorn>=0.29
