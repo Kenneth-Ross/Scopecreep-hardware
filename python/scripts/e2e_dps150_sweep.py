@@ -88,6 +88,9 @@ DPS150 = _load_dps150_class()
 CH = int(os.getenv("SCOPE_CH", "1"))
 TOLERANCE_V = float(os.getenv("TOLERANCE", "0.15"))
 SETTLE_S = float(os.getenv("SETTLE_S", "1.5"))         # DPS-150 needs time to ramp
+PSU_POLL_TIMEOUT_S = float(os.getenv("PSU_POLL_TIMEOUT_S", "4.0"))
+PSU_READBACK_TOL_V = float(os.getenv("PSU_READBACK_TOL_V", "0.1"))
+PSU_SET_RETRIES = int(os.getenv("PSU_SET_RETRIES", "3"))
 CURRENT_LIMIT = float(os.getenv("CURRENT_LIMIT", "0.1"))  # amps; keep low for safety
 SAMPLE_RATE = 1_000_000.0
 N_SAMPLES = 8192
@@ -117,6 +120,38 @@ def _autodetect_port() -> str:
             "No serial port found. Plug in the DPS-150 or set PSU_PORT=..."
         )
     return sorted(candidates)[0]
+
+
+def _try_read_voltage(psu) -> float:
+    """Return PSU voltage readback, or NaN if the serial response is garbled."""
+    try:
+        return float(psu.get_measurements().get("voltage", float("nan")))
+    except Exception:
+        return float("nan")
+
+
+def _set_and_settle(psu, target: float) -> float:
+    """Set PSU voltage and poll get_measurements until it converges.
+
+    Retries the set_voltage packet if the readback never reaches the target
+    within PSU_POLL_TIMEOUT_S. Returns the last valid readback (or NaN if
+    every poll failed).
+    """
+    last_good = float("nan")
+    for attempt in range(1, PSU_SET_RETRIES + 1):
+        psu.set_voltage(target)
+        deadline = time.monotonic() + PSU_POLL_TIMEOUT_S
+        while time.monotonic() < deadline:
+            time.sleep(0.15)
+            v = _try_read_voltage(psu)
+            if not np.isnan(v):
+                last_good = v
+                if abs(v - target) <= PSU_READBACK_TOL_V:
+                    # Also wait for the scope's settle interval before returning.
+                    time.sleep(SETTLE_S)
+                    return v
+        # Didn't converge within timeout; try another set_voltage packet.
+    return last_good
 
 
 def _capture_mean(scope, channel: int) -> tuple[float, float]:
@@ -165,7 +200,9 @@ def main() -> None:
         psu.set_current(CURRENT_LIMIT)
         psu.set_voltage(0.0)
         psu.enable_output(True)
-        time.sleep(SETTLE_S)
+        # First-time enable needs extra settle; the device is still finishing
+        # its init handshake when we start issuing setpoints.
+        time.sleep(max(SETTLE_S, 2.0))
 
         header = (f"{'setpoint':>10} {'psu_meas':>10} {'scope':>10} "
                   f"{'error':>9} {'pp':>8}  verdict")
@@ -174,14 +211,7 @@ def main() -> None:
         print("-" * len(header))
 
         for target in voltages:
-            psu.set_voltage(target)
-            time.sleep(SETTLE_S)
-
-            try:
-                psu_meas = psu.get_measurements().get("voltage", float("nan"))
-            except Exception:
-                psu_meas = float("nan")
-
+            psu_meas = _set_and_settle(psu, target)
             scope_meas, pp = _capture_mean(scope_dev.scope, CH)
             err = scope_meas - target
             ok = abs(err) <= TOLERANCE_V
