@@ -1,8 +1,8 @@
 # Integration status — plugin ↔ agent ↔ firmware
 
-Snapshot: 2026-04-19. Branch `feat/plugin-agent-integration` in both repos
-(`/home/alex/jbhack` and `/home/alex/jbhack/Scopecreep`). Working tree is
-uncommitted.
+Snapshot: 2026-04-19 (post `feat/openai-test-flow` merge). Branch
+`feat/plugin-agent-integration` in both repos (`/home/alex/jbhack` and
+`/home/alex/jbhack/Scopecreep`). OpenAI-only LLM stack; no Anthropic.
 
 This doc is the handoff contract between three concurrent efforts:
 
@@ -29,10 +29,13 @@ Registered in `Scopecreep/src/main/kotlin/com/scopecreep/ScopecreepToolWindowFac
 3. **Schematic** (new) — picks a `.SchDoc` → `POST /schematic/parse` on port
    8000 → renders the Markdown summary via `MarkdownRenderer`. A "Use in
    Agent" button hands the markdown to the Agent tab as a hint.
-4. **Agent** (new) — start/poll/resume/cancel a test session. Pastes or loads
-   the structured schematic JSON that `POST /agent/sessions` expects. Renders
-   the probe prompt during `PROBE_REQUIRED`, and a Markdown report on
-   `COMPLETE`/`FAILED`.
+4. **Agent (REST)** (new) — start/poll/resume/cancel a test session against
+   the `/agent/sessions` router. Still live post-OpenAI migration; kept for
+   parity with the earlier flow.
+5. **Test flow** (new) — spawns `python -m cli.run_test` (the CLI the other
+   agent delivered). Streams stdout into a transcript; exposes Approve /
+   Next step / Abort buttons that push the right bytes into the CLI's stdin.
+   On exit 0, the JSON report is written to `reports/` under the venv home.
 5. **Waveform** (new) — receives the raw report JSON from the Agent tab and
    renders a per-probe measurement table (`v_min/max/mean/pp/rms`) with a
    small hand-rolled Swing sparkline cell.
